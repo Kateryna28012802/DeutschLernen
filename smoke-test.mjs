@@ -16,9 +16,21 @@ for (const ref of jsRefs) {
 }
 
 const dataRefs = jsRefs.filter(ref => ref.startsWith('data/'));
-const rendererIndex = jsRefs.indexOf('js/legacy-features.js');
-if (!dataRefs.length || dataRefs.some(ref => jsRefs.indexOf(ref) > rendererIndex)) {
-  throw new Error('Content data must load before the legacy renderer');
+const coreIndex = jsRefs.indexOf('js/app.js');
+const legacyIndex = jsRefs.indexOf('js/legacy-features.js');
+const bootstrapIndex = jsRefs.indexOf('js/bootstrap.js');
+const featureRefs = ['js/exercises.js', 'js/progress.js', 'js/lessons.js', 'js/career.js', 'js/dictionary.js', 'js/admin.js', 'js/auth.js'];
+if (!dataRefs.length || coreIndex < 0 || legacyIndex < 0 || bootstrapIndex < 0) {
+  throw new Error('Required data/core/compatibility/bootstrap scripts are missing');
+}
+if (dataRefs.some(ref => jsRefs.indexOf(ref) > coreIndex)) {
+  throw new Error('Content data must load before the shared runtime');
+}
+if (featureRefs.some(ref => !jsRefs.includes(ref) || jsRefs.indexOf(ref) < coreIndex || jsRefs.indexOf(ref) > legacyIndex)) {
+  throw new Error('Feature modules must load between app.js and the compatibility layer');
+}
+if (bootstrapIndex !== jsRefs.length - 1 || bootstrapIndex < legacyIndex) {
+  throw new Error('bootstrap.js must initialize the application exactly once and load last');
 }
 const dataContext = vm.createContext({ window: {} });
 dataContext.window.window = dataContext.window;
@@ -41,6 +53,19 @@ if (!Array.isArray(contentData.career?.specialTopics) || !contentData.vocabulary
 const legacySource = fs.readFileSync(path.join(root, 'js/legacy-features.js'), 'utf8');
 if (/ensureContentIds\(\);\s*view\(\);\s*\}\)\(\);\s*$/.test(legacySource)) {
   throw new Error('legacy-features.js must not duplicate bootstrap initialization');
+}
+const appSource = fs.readFileSync(path.join(root, 'js/app.js'), 'utf8');
+for (const namespace of ['state', 'utils', 'app', 'lessons', 'exercises', 'dictionary', 'progress', 'admin', 'auth']) {
+  if (!appSource.includes(`Deutschraum.${namespace}`)) throw new Error(`Missing shared runtime namespace: ${namespace}`);
+}
+for (const removedBlock of ['function renderTask(', 'function focusTraining(', 'function enrichVocabularyWord(', 'window.openEverydaySituation=function']) {
+  if (legacySource.includes(removedBlock)) throw new Error(`Extracted implementation remains duplicated in legacy-features.js: ${removedBlock}`);
+}
+if (!fs.readFileSync(path.join(root, 'js/exercises.js'), 'utf8').includes('runtime.exercises') ||
+    !fs.readFileSync(path.join(root, 'js/lessons.js'), 'utf8').includes('runtime.lessons') ||
+    !fs.readFileSync(path.join(root, 'js/dictionary.js'), 'utf8').includes('runtime.dictionary') ||
+    !fs.readFileSync(path.join(root, 'js/progress.js'), 'utf8').includes('runtime.progress')) {
+  throw new Error('Feature modules do not publish their runtime APIs');
 }
 
 if (/<style\b|<script(?!\s+src=)/i.test(html)) {

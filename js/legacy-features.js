@@ -1,7 +1,9 @@
 /* Deutschraum – Admin, Vorschau, Zahlungsarten und Aufgabenrenderer */
 (function () {
-  const normalize = value => String(value || '').trim().toUpperCase();
-  const esc = value => String(value || '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[char]));
+  const runtime = window.Deutschraum;
+  const normalize = runtime.utils.normalize;
+  const esc = runtime.utils.escape;
+  const taskIdentity = runtime.app.taskIdentity;
   const originalOpen = window.open;
   const originalLevels = window.levels;
   /* Declarative content is loaded from data/*.js before this renderer. */
@@ -16,6 +18,9 @@
   const multilingual = contentData.vocabulary.multilingual;
   const defaultVocabCategories = contentData.vocabulary.defaultCategories;
   const vocabularyForms = contentData.vocabulary.forms;
+  const exerciseEngine = window.Deutschraum.exercises;
+  const { renderTask, renderWritingTask, mediaHtml, renderChatSimulator, renderTrueFalseTask } = exerciseEngine;
+  let wordify = exerciseEngine.wordify;
 
   window.open = function (content) {
     originalOpen(content);
@@ -143,237 +148,6 @@
     box.scrollIntoView({ behavior:'smooth', block:'nearest' });
   };
 
-  function exampleBox(type) {
-    const gap = type === 'Lückentext';
-    const demo = gap
-      ? 'Ich <span class="example-answer">wohne</span> in Berlin.'
-      : type === 'Fehlerkorrektur'
-        ? 'Ich <span class="example-old">geht</span> <span class="example-arrow">→</span> <span class="example-answer">gehe</span> nach Hause.'
-        : '<span class="example-answer">✓ Ein Schritt ist bereits richtig gelöst.</span>';
-    const note = gap ? 'Baustein in die passende Lücke ziehen oder antippen.' : type === 'Fehlerkorrektur' ? 'Fehlerwort wählen, Korrektur eingeben und prüfen.' : 'Probiere die Aufgabe danach auf dieselbe Weise.';
-    return '<aside class="exercise-example" aria-label="Interaktives Beispiel"><div><p class="example-label">BEISPIEL</p><div class="example-demo">' + demo + '</div><small>' + note + '</small></div><button type="button" class="example-replay" onclick="toggleExample(this)" aria-label="Beispiel wiederholen">↻</button></aside>';
-  }
-
-  function parseGapTask(content) {
-    const answers = [];
-    const html = esc(content || 'Ich [[wohne]] in Berlin.').replace(/\[\[([^\]|]+)\]\]/g, (_, answer) => {
-      const index = answers.push(answer.trim()) - 1;
-      return '<button type="button" class="gap-drop" data-gap="' + index + '" data-correct="' + esc(answer.trim()) + '" onclick="placeSelectedTile(this)" ondragover="gapDragOver(event)" ondragleave="this.classList.remove(\'drag-over\')" ondrop="dropTile(event,this)" aria-label="Leere Textlücke">&nbsp;</button>';
-    }).replace(/\n/g, '<br>');
-    return { html, answers };
-  }
-
-  function renderGapTask(content) {
-    const parsed = parseGapTask(content);
-    const tiles = parsed.answers.map((answer, index) => ({ answer, index })).sort(() => Math.random() - .5);
-    if (!tiles.length) return '<p class="notice">Bitte im Admin-Panel Lösungen als <strong>[[Lösung]]</strong> markieren.</p>';
-    return '<div class="gap-exercise" data-checked="false"><p class="task-text">' + parsed.html + '</p><div class="word-bank" aria-label="Wort-Bausteine">' + tiles.map(tile => '<button type="button" draggable="true" class="word-chip draggable gap-tile" data-answer="' + esc(tile.answer) + '" data-tile="' + tile.index + '" onclick="selectGapTile(this)" ondragstart="startTileDrag(event,this)" ondragend="endTileDrag(this)">' + esc(tile.answer) + '</button>').join('') + '</div><button type="button" class="primary check-task" onclick="checkGapTask(this)">Antworten prüfen</button><p class="task-feedback" aria-live="polite"></p></div>';
-  }
-
-  function renderCorrectionTask(content) {
-    const source = content || 'Ich [[geht|gehe]] morgen in die Schule.';
-    let targetIndex = 0;
-    const marked = source.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, (_, wrong, correct) => '§§' + (targetIndex++) + '§§' + wrong + '§§' + correct + '§§');
-    const tokens = marked.split(/(\s+)/);
-    const words = tokens.map(token => {
-      if (/^\s+$/.test(token)) return token;
-      const match = token.match(/^§§(\d+)§§(.*?)§§(.*?)§§([.,!?;:]*)$/);
-      if (match) return '<button type="button" class="correction-word" data-error="true" data-correct="' + esc(match[3]) + '" onclick="chooseCorrectionWord(this)">' + esc(match[2] + match[4]) + '</button>';
-      return '<button type="button" class="correction-word" data-error="false" onclick="chooseCorrectionWord(this)">' + esc(token) + '</button>';
-    }).join('');
-    if (!targetIndex) return '<p class="notice">Bitte Fehler als <strong>[[falsch|richtig]]</strong> markieren.</p>';
-    return '<div class="correction-exercise"><p class="task-text correction-sentence">' + words + '</p><p class="muted">Klicke das fehlerhafte Wort an.</p><p class="task-feedback" aria-live="polite"></p></div>';
-  }
-
-  function wordify(text) {
-    return esc(text || '').replace(/([A-Za-zÄÖÜäöüß]+(?:-[A-Za-zÄÖÜäöüß]+)?)/g, '<button type="button" class="word-clickable" onclick="openWordMenu(\'$1\')">$1</button>').replace(/\n/g, '<br>');
-  }
-
-  function renderWritingTask(item) {
-    const data = item?.data || {};
-    const context = data.writingContext || item?.content || 'Schreibe einen kurzen Text zum Thema.';
-    const points = String(data.writingPoints || '').split(/\n|;/).map(point => point.trim()).filter(Boolean);
-    return exampleBox('Schreiben') + '<section class="writing-task" data-task-date="' + Number(item?.date || 0) + '"><div class="writing-brief"><p class="eyebrow">SCHREIBAUFTRAG</p><h3>' + wordify(context) + '</h3>' + (points.length ? '<ul>' + points.map(point => '<li>' + wordify(point) + '</li>').join('') + '</ul>' : '') + '</div><label class="writing-label">Dein Text<textarea class="writing-answer open-answer" placeholder="Schreibe hier deinen Text …"></textarea></label><button type="button" class="primary" onclick="evaluateWriting(this)">Text abgeben</button><div class="writing-feedback hidden" aria-live="polite"></div></section>';
-  }
-
-  function mediaHtml(item) {
-    const audio = item?.audio_url || '';
-    const video = item?.video_url || '';
-    let html = '';
-    if (item?.image_url) html += '<div class="lesson-media"><p class="eyebrow">BILD</p><img src="' + esc(item.image_url) + '" alt="Illustration zur Aufgabe" loading="lazy"></div>';
-    if (audio) html += '<div class="lesson-media"><p class="eyebrow">AUDIO</p><audio controls preload="metadata" src="' + esc(audio) + '">Audio nicht verfügbar.</audio></div>';
-    if (video) {
-      const yt = video.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([\w-]+)/) || (/^[\w-]{11}$/.test(video) ? [video,video] : null);
-      const vm = video.match(/vimeo\.com\/(\d+)/);
-      if (yt) html += '<div class="lesson-media"><p class="eyebrow">VIDEO</p><iframe src="https://www.youtube-nocookie.com/embed/' + esc(yt[1]) + '" title="Lektionsvideo" loading="lazy" allowfullscreen></iframe></div>';
-      else if (vm) html += '<div class="lesson-media"><p class="eyebrow">VIDEO</p><iframe src="https://player.vimeo.com/video/' + esc(vm[1]) + '" title="Lektionsvideo" loading="lazy" allowfullscreen></iframe></div>';
-      else html += '<div class="lesson-media"><p class="eyebrow">VIDEO</p><video controls preload="metadata" src="' + esc(video) + '">Video nicht verfügbar.</video></div>';
-    }
-    return html;
-  }
-
-  function renderSpeakingTask(content, audioUrl) {
-    const sample = audioUrl ? '<audio controls preload="metadata" src="' + esc(audioUrl) + '">Audio nicht verfügbar.</audio>' : '<button type="button" class="secondary" onclick="say(\'' + esc(content).replace(/&#39;/g,"\\'") + '\')">🔊 Musterlösung anhören</button>';
-    return exampleBox('Sprechen') + '<section class="speaking-task"><div class="speaking-prompt"><p class="eyebrow">SPRICH DEN TEXT</p><p class="clickable-copy">' + wordify(content || 'Guten Tag, ich möchte einen Termin vereinbaren.') + '</p></div><div class="sample-audio"><strong>Audio-Musterlösung</strong>' + sample + '</div><div class="recorder-panel"><button type="button" class="record-button" onclick="toggleRecording(this)" aria-pressed="false"><span class="record-dot"></span><span>Aufnahme starten</span></button><span class="record-status" aria-live="polite">Bereit</span><audio class="recorded-audio hidden" controls></audio></div><p class="muted">Nimm deine Stimme auf und vergleiche sie direkt mit der Musterlösung. Die Aufnahme bleibt nur in diesem Browser-Tab.</p></section>';
-  }
-
-  function renderCategorizationTask(content){const groups=String(content||'der: Tisch,Apfel; die: Schule,Banane; das: Haus,Brot').split(/;|\n/).map(row=>{const parts=row.split(':');return{name:(parts.shift()||'Kategorie').trim(),items:parts.join(':').split(',').map(item=>item.trim()).filter(Boolean)}}).filter(group=>group.items.length),items=groups.flatMap(group=>group.items.map(item=>({item,group:group.name}))).sort(()=>Math.random()-.5);return exampleBox('Kategorisierung')+'<section class="categorization-exercise"><p class="muted">Ziehe ein Wort in die passende Kategorie oder tippe zuerst das Wort und dann die Kategorie an.</p><div class="sorting-bank">'+items.map((entry,index)=>'<button class="sort-item" draggable="true" data-id="sort-'+index+'" data-correct="'+esc(entry.group)+'" onclick="selectSortItem(this)" ondragstart="startSortDrag(event,this)">'+esc(entry.item)+'</button>').join('')+'</div><div class="sorting-columns">'+groups.map(group=>'<button type="button" class="sorting-column" data-category="'+esc(group.name)+'" onclick="placeSelectedSortItem(this)" ondragover="event.preventDefault()" ondrop="dropSortItem(event,this)"><strong>'+esc(group.name)+'</strong><span class="sorting-dropzone"></span></button>').join('')+'</div><button class="primary check-task" onclick="checkCategorization(this)">Antworten prüfen</button><p class="task-feedback" aria-live="polite"></p></section>'}
-  function renderTrueFalseTask(content){const rows=String(content||'Berlin ist die Hauptstadt Deutschlands.|richtig\nHamburg liegt in Österreich.|falsch').split(/\n|;/).map(row=>{const parts=row.split('|');return{text:(parts[0]||'').trim(),correct:/^(richtig|wahr|true)$/i.test((parts[1]||'richtig').trim())}}).filter(row=>row.text);return exampleBox('Richtig / Falsch')+'<section class="true-false-exercise">'+rows.map(row=>'<article class="tf-row" data-solved="false"><p>'+wordify(row.text)+'</p><div><button onclick="answerTrueFalse(this,true,'+row.correct+')">Richtig</button><button onclick="answerTrueFalse(this,false,'+row.correct+')">Falsch</button></div><small class="task-feedback" aria-live="polite"></small></article>').join('')+'</section>'}
-  function renderChatSimulator(content){const rows=String(content||'Hallo! Wie geht es dir? => Danke, gut!* | Ich heiße Anna.\nWas machst du heute? => Ich lerne Deutsch.* | Blau.').split(/\n/).map(row=>{const parts=row.split('=>'),options=(parts[1]||'').split('|').map(option=>option.trim()).filter(Boolean);return{message:(parts[0]||'').trim(),options:options.map(option=>({text:option.replace(/\*$/,'').trim(),correct:/\*$/.test(option)}))}}).filter(row=>row.message&&row.options.length);return exampleBox('Chat-Simulator')+'<section class="chat-simulator" data-step="0">'+rows.map((row,index)=>'<article class="chat-step '+(index?'hidden':'')+'" data-chat-step="'+index+'"><div class="chat-bubble partner">'+wordify(row.message)+'</div><div class="chat-options">'+row.options.map(option=>'<button onclick="answerChat(this,'+option.correct+')">'+esc(option.text)+'</button>').join('')+'</div><p class="task-feedback"></p></article>').join('')+'</section>'}
-  function renderOddOneOut(content){const words=String(content||'Apfel | Banane | Brot* | Orange').split('|').map(word=>word.trim()).filter(Boolean);return exampleBox('Odd One Out')+'<section class="odd-exercise"><p class="muted">Welches Wort passt nicht in die Reihe?</p><div class="odd-options">'+words.map(word=>'<button onclick="answerOddOne(this,'+/\*$/.test(word)+')">'+esc(word.replace(/\*$/,''))+'</button>').join('')+'</div><p class="task-feedback" aria-live="polite"></p></section>'}
-
-  function renderTask(type, content, audioUrl) {
-    const safe = esc(content);
-    const example = exampleBox(type);
-    const customType=(db.customTaskTypes||[]).find(item=>item.name===type);
-    if(customType)return example+'<section class="custom-exercise"><p class="task-text">'+wordify(content||customType.instruction)+'</p><div class="option-cards">'+customType.options.map((option,index)=>'<button class="option-card" onclick="choiceCheck(this,'+(index===Number(customType.correct))+')">'+esc(option)+'</button>').join('')+'</div><p class="task-feedback" aria-live="polite"></p></section>';
-    if (type === 'Lückentext') return example + renderGapTask(content);
-    if (type === 'Kategorisierung') return renderCategorizationTask(content);
-    if (type === 'Richtig / Falsch') return renderTrueFalseTask(content);
-    if (type === 'Chat-Simulator') return renderChatSimulator(content);
-    if (type === 'Odd One Out') return renderOddOneOut(content);
-    if (type === 'Multiple Choice') {
-      return example + '<div class="option-cards">' + ['Ich heiße Lena.','Ich heißen Lena.','Ich heißt Lena.'].map((option, index) => '<button class="option-card" onclick="choiceCheck(this,' + (index === 0) + ')">' + option + '</button>').join('') + '</div>';
-    }
-    if (type === 'Satzbau') {
-      const tiles = content.split('|').map(word => word.trim()).filter(Boolean);
-      return example + '<div class="drag-zone"><div class="sentence-result" id="sentenceDrop">Baue hier deinen Satz …</div></div><div class="word-bank">' + tiles.map(word => '<button draggable="true" class="word-chip draggable" ontouchstart="this.classList.add(\'dragging\')" onclick="appendTile(this)">' + esc(word) + '</button>').join('') + '</div>';
-    }
-    if (type === 'Zuordnung') {
-      return example + '<div class="matching-grid"><button class="match-left" onclick="selectMatch(this)">Haus</button><button class="match-right" onclick="selectMatch(this)">🏠 Haus</button><button class="match-left" onclick="selectMatch(this)">Auto</button><button class="match-right" onclick="selectMatch(this)">🚗 Auto</button></div><p class="muted">Wähle jeweils ein Wort und das passende Gegenstück.</p>';
-    }
-    if (type === 'Freitext') {
-      return example + '<textarea class="open-answer" placeholder="Schreibe deine Antwort auf Deutsch …"></textarea><div class="special-keys">' + ['ä','ö','ü','ß'].map(char => '<button class="word-chip" onclick="insertChar(\'' + char + '\')">' + char + '</button>').join('') + '</div>';
-    }
-    if (type === 'Kontext-Übung') {
-      return example + '<p class="task-text">Im Café <select class="context-select" onchange="contextCheck(this,\'möchte\')"><option value="">Wähle …</option><option>möchte</option><option>möchten</option><option>möchtet</option></select> ich einen Kaffee.</p>';
-    }
-    if (type === 'Hörverstehen') {
-      return example + '<audio controls class="task-audio" src="' + esc(audioUrl) + '"></audio><button class="speaker" onclick="say(\'Guten Tag, wo ist der Bahnhof?\')">🔊 Hörtext anhören</button><p>' + safe + '</p>';
-    }
-    if (type === 'Interaktiver Dialog') {
-      return example + '<div class="dialog-line">👩 Guten Tag, was möchten Sie? <button class="speaker" onclick="say(\'Guten Tag, was möchten Sie?\')">🔊</button></div><div class="dialog-line">👤 Ich möchte <select onchange="contextCheck(this,\'einen Kaffee\')"><option>…</option><option>einen Kaffee</option><option>eine Kaffee</option></select>, bitte. <button class="speaker" onclick="say(\'Ich möchte einen Kaffee, bitte.\')">🔊</button></div>';
-    }
-    if (type === 'Fehlerkorrektur') {
-      return example + renderCorrectionTask(content);
-    }
-    if (type === 'Schreiben') return example + '<p class="notice">Die vollständige Schreibansicht wird beim Öffnen der veröffentlichten Aufgabe angezeigt.</p>';
-    if (type === 'Sprechen') return renderSpeakingTask(content, audioUrl);
-    if (type === 'Grammatik-Regel') {
-      return example + '<div class="rule-preview"><strong>Verbposition 2:</strong> ' + wordify(content || 'Heute lerne ich Deutsch. Das Verb steht im Hauptsatz auf Position 2.') + '</div>';
-    }
-    return example + '<p class="clickable-copy">' + wordify(content) + '</p>';
-  }
-
-  let selectedGapTile = null;
-  window.toggleExample = button => { const box = button.closest('.exercise-example'); box.classList.toggle('replaying'); button.textContent = box.classList.contains('replaying') ? '✓' : '↻'; };
-  window.selectGapTile = tile => { document.querySelectorAll('.gap-tile.selected').forEach(item => item.classList.remove('selected')); selectedGapTile = tile; tile.classList.add('selected'); };
-  window.placeSelectedTile = slot => { if (selectedGapTile) placeTile(selectedGapTile, slot); };
-  window.startTileDrag = (event, tile) => { selectedGapTile = tile; tile.classList.add('dragging'); event.dataTransfer.setData('text/plain', tile.dataset.tile); event.dataTransfer.effectAllowed = 'move'; };
-  window.endTileDrag = tile => { tile.classList.remove('dragging'); document.querySelectorAll('.gap-drop.drag-over').forEach(slot => slot.classList.remove('drag-over')); };
-  window.gapDragOver = event => { event.preventDefault(); event.currentTarget.classList.add('drag-over'); event.dataTransfer.dropEffect = 'move'; };
-  window.dropTile = (event, slot) => { event.preventDefault(); slot.classList.remove('drag-over'); if (selectedGapTile) placeTile(selectedGapTile, slot); };
-  function placeTile(tile, slot) {
-    const previousId = slot.dataset.tile;
-    if (previousId !== undefined) { const previous = document.querySelector('.gap-tile[data-tile="' + previousId + '"]'); if (previous) previous.hidden = false; }
-    const oldSlot = document.querySelector('.gap-drop[data-tile="' + tile.dataset.tile + '"]');
-    if (oldSlot) { oldSlot.innerHTML = '&nbsp;'; delete oldSlot.dataset.tile; delete oldSlot.dataset.answer; }
-    slot.textContent = tile.dataset.answer; slot.dataset.answer = tile.dataset.answer; slot.dataset.tile = tile.dataset.tile;
-    slot.classList.remove('correct','incorrect'); tile.hidden = true; tile.classList.remove('selected'); selectedGapTile = null;
-  }
-  window.checkGapTask = button => {
-    const exercise = button.closest('.gap-exercise'); const slots = [...exercise.querySelectorAll('.gap-drop')]; let correct = 0;
-    slots.forEach(slot => { const ok = slot.dataset.answer === slot.dataset.correct; slot.classList.toggle('correct', ok); slot.classList.toggle('incorrect', !ok); if (ok) correct++; });
-    exercise.dataset.checked = 'true'; exercise.querySelector('.task-feedback').textContent = correct === slots.length ? '✓ Alles richtig!' : correct + ' von ' + slots.length + ' richtig. Probiere die roten Lücken noch einmal.';
-    if (correct === slots.length) completeCurrentTask(button);
-  };
-  window.chooseCorrectionWord = button => {
-    const sentence = button.closest('.correction-sentence'); if (sentence.querySelector('.correction-input')) return;
-    if (button.dataset.error !== 'true') {const feedback=button.closest('.correction-exercise').querySelector('.task-feedback');button.classList.add('incorrect');feedback.textContent='Falsch, versuche es noch einmal! 💡';setTimeout(()=>button.classList.remove('incorrect'),700);return;}
-    const input = document.createElement('input'); input.className = 'correction-input'; input.placeholder = 'Korrektur'; input.dataset.correct = button.dataset.correct; input.dataset.original = button.textContent;
-    input.addEventListener('keydown', event => { if (event.key === 'Enter') submitCorrection(input); });
-    const submit = document.createElement('button'); submit.type = 'button'; submit.className = 'primary correction-submit'; submit.textContent = 'Prüfen'; submit.onclick = () => submitCorrection(input);
-    button.replaceWith(input, submit); input.focus();
-  };
-  function submitCorrection(input) {
-    const value = input.value.trim(); const correct = input.dataset.correct; const ok = value.toLocaleLowerCase('de-DE') === correct.toLocaleLowerCase('de-DE');
-    input.classList.toggle('correct', ok); input.classList.toggle('incorrect', !ok);
-    const feedback = input.closest('.correction-exercise').querySelector('.task-feedback');
-    if (ok) { const solved = document.createElement('span'); solved.className = 'correction-solved'; solved.textContent = correct; input.nextElementSibling?.remove(); input.replaceWith(solved); feedback.textContent = '✓ Richtig korrigiert!'; completeCurrentTask(solved); }
-    else { feedback.textContent = 'Noch nicht richtig. Versuche es noch einmal.'; if (window.recordLearningError) recordLearningError(input,value,correct); }
-  }
-  window.choiceCheck = function (button, correct) {const scope=button.closest('.custom-exercise,.dialog,.student-preview')||document,feedback=scope.querySelector('.task-feedback')||(()=>{const node=document.createElement('p');node.className='task-feedback';node.setAttribute('aria-live','polite');button.closest('.option-cards').after(node);return node})();if(correct){button.classList.remove('incorrect');button.classList.add('correct');feedback.textContent='Richtig! 🎉';completeCurrentTask(button)}else{button.classList.add('incorrect');feedback.textContent='Falsch, versuche es noch einmal! 💡';setTimeout(()=>button.classList.remove('incorrect'),700)}};
-  window.appendTile = function (tile) { const target = document.getElementById('sentenceDrop'); if (target) { target.textContent = (target.textContent === 'Baue hier deinen Satz …' ? '' : target.textContent + ' ') + tile.textContent; tile.disabled = true; } };
-  window.contextCheck = function (select, correct) {const ok=select.value===correct;select.classList.toggle('correct',ok);select.classList.toggle('incorrect',!!select.value&&!ok);let feedback=select.parentElement.querySelector('.task-feedback');if(!feedback){feedback=document.createElement('small');feedback.className='task-feedback';select.parentElement.append(feedback)}feedback.textContent=ok?'Richtig! 🎉':'Falsch, versuche es noch einmal! 💡';if(!ok)setTimeout(()=>select.classList.remove('incorrect'),700);else completeCurrentTask(select)};
-  window.correctError = function (button) { const input = document.createElement('input'); input.className = 'inline-gap'; input.placeholder = 'Korrektur'; input.onchange = () => { if (input.value === 'wohne') { input.classList.add('correct'); input.title = 'Richtig!'; } else { input.classList.add('incorrect'); input.title = 'Richtig wäre: wohne'; } }; button.replaceWith(input); input.focus(); };
-  window.selectMatch = function (button) { const selected = document.querySelector('.matching-grid .selected'); if (!selected) { button.classList.add('selected'); return; } selected.classList.remove('selected'); selected.classList.add('correct'); button.classList.add('correct'); };
-  window.insertChar = function (char) { const field = document.querySelector('.open-answer'); if (field) { field.setRangeText(char, field.selectionStart, field.selectionEnd, 'end'); field.focus(); } };
-  let selectedSortItem=null;
-  window.selectSortItem=function(item){document.querySelectorAll('.sort-item.selected').forEach(node=>node.classList.remove('selected'));selectedSortItem=item;item.classList.add('selected')};
-  window.startSortDrag=function(event,item){selectedSortItem=item;event.dataTransfer.setData('text/plain',item.dataset.id)};
-  function placeSortItem(column,item){if(!item)return;column.querySelector('.sorting-dropzone').append(item);item.dataset.placed=column.dataset.category;item.classList.remove('selected','correct','incorrect');selectedSortItem=null}
-  window.placeSelectedSortItem=function(column){placeSortItem(column,selectedSortItem)};
-  window.dropSortItem=function(event,column){event.preventDefault();placeSortItem(column,selectedSortItem)};
-  window.checkCategorization=function(button){const exercise=button.closest('.categorization-exercise'),items=[...exercise.querySelectorAll('.sort-item')],correct=items.filter(item=>item.dataset.placed===item.dataset.correct);items.forEach(item=>{const ok=item.dataset.placed===item.dataset.correct;item.classList.toggle('correct',ok);item.classList.toggle('incorrect',!ok)});const feedback=exercise.querySelector('.task-feedback');feedback.textContent=correct.length===items.length?'Richtig! 🎉':'Falsch, versuche es noch einmal! 💡';if(correct.length===items.length)completeCurrentTask(button)};
-  window.answerTrueFalse=function(button,answer,correct){const row=button.closest('.tf-row'),ok=answer===correct,feedback=row.querySelector('.task-feedback');if(ok){button.classList.add('correct');row.dataset.solved='true';feedback.textContent='Richtig! 🎉';if([...row.closest('.true-false-exercise').querySelectorAll('.tf-row')].every(item=>item.dataset.solved==='true'))completeCurrentTask(button)}else{button.classList.add('incorrect');feedback.textContent='Falsch, versuche es noch einmal! 💡';setTimeout(()=>button.classList.remove('incorrect'),700)}};
-  window.answerChat=function(button,correct){const step=button.closest('.chat-step'),feedback=step.querySelector('.task-feedback');if(!correct){button.classList.add('incorrect');feedback.textContent='Falsch, versuche es noch einmal! 💡';setTimeout(()=>button.classList.remove('incorrect'),700);return}button.classList.add('correct');feedback.textContent='Richtig! 🎉';const next=step.nextElementSibling;if(next){setTimeout(()=>{step.classList.add('completed');next.classList.remove('hidden')},350)}else completeCurrentTask(button)};
-  window.answerOddOne=function(button,correct){const exercise=button.closest('.odd-exercise'),feedback=exercise.querySelector('.task-feedback');if(correct){button.classList.add('correct');feedback.textContent='Richtig! 🎉';completeCurrentTask(button)}else{button.classList.add('incorrect');feedback.textContent='Falsch, versuche es noch einmal! 💡';setTimeout(()=>button.classList.remove('incorrect'),700)}};
-
-  function completeCurrentTask(element) {
-    const date = Number(element?.closest('.dialog')?.dataset.taskDate || element?.closest('[data-task-date]')?.dataset.taskDate || 0);
-    if (!date || !window.prof?.()) return;
-    const profile = window.prof(); const key = 'task-' + date;
-    if (!profile.done.includes(key)) profile.done.push(key);
-    const item=(db.content||[]).find(entry=>Number(entry.date)===date);if(item)item.isNew=false;
-    save();
-  }
-
-  window.markTaskDone = function (date, button) {
-    if (!window.prof?.()) return login('login');
-    const profile = window.prof(); const key = 'task-' + Number(date);
-    if (!profile.done.includes(key)) profile.done.push(key);
-    const item=(db.content||[]).find(entry=>Number(entry.date)===Number(date));if(item)item.isNew=false;
-    save(); button.textContent = '✓ Erledigt'; button.disabled = true;
-  };
-
-  window.openWordMenu = function (rawWord) {
-    const clean = String(rawWord || '').replace(/[^A-Za-zÄÖÜäöüß-]/g,'');
-    const lookup = lexicalInfo[clean] || lexicalInfo[clean.toLowerCase()];
-    const noun = /^[A-ZÄÖÜ]/.test(clean);
-    const info = lookup || (noun ? {kind:'Nomen',forms:clean + ', Plural bitte ergänzen'} : {kind:'Wort',forms:'Grundform: ' + clean.toLowerCase()});
-    window.open('<div class="dialog word-modal"><div class="dialog-top"><div><p class="eyebrow">PERSÖNLICHER WORTSCHATZ</p><h2>' + esc(clean) + '</h2></div><button class="icon">✕</button></div><p class="word-type">' + esc(info.kind) + '</p><p><strong>' + esc(info.forms) + '</strong></p><p class="translation"><strong>Übersetzung:</strong> ' + esc(translationFor(clean)) + '</p><div class="word-actions"><button class="secondary" onclick="say(\'' + esc(clean).replace(/&#39;/g,"\\'") + '\')">🔊 Aussprache</button><button class="primary" onclick="saveClickedWord(\'' + esc(clean).replace(/&#39;/g,"\\'") + '\')">＋ Im Vokabelheft speichern</button></div><p id="wordSaveMessage" class="task-feedback"></p></div>');
-  };
-  window.saveClickedWord = function (wordValue) {
-    if (!window.prof?.()) return login('login');
-    const words = window.prof().words; if (!words.includes(wordValue)) words.push(wordValue); save();
-    const message = document.getElementById('wordSaveMessage'); if (message) message.textContent = '✓ Gespeichert';
-  };
-
-  window.evaluateWriting = function (button) {
-    const task = button.closest('.writing-task'); const answer = task.querySelector('.writing-answer').value.trim(); const feedback = task.querySelector('.writing-feedback');
-    if (answer.length < 20) { feedback.classList.remove('hidden'); feedback.innerHTML = '<p class="feedback-error">Bitte schreibe mindestens zwei vollständige Sätze.</p>'; return; }
-    const item = (db.content || []).find(entry => Number(entry.date) === Number(task.dataset.taskDate)); const data = item?.data || {};
-    const sentences = answer.split(/[.!?]+/).filter(Boolean).length; const words = answer.split(/\s+/).filter(Boolean).length;
-    const issues = []; if (!/[.!?]$/.test(answer)) issues.push(['Rechtschreibung','Satzzeichen am Textende','Setze am Satzende einen Punkt, ein Frage- oder Ausrufezeichen.']); if (/\bich\s+[A-ZÄÖÜ]/.test(answer)) issues.push(['Rechtschreibung','Nomen und Satzanfänge prüfen','„ich“ wird nur am Satzanfang großgeschrieben.']); if (sentences < 2) issues.push(['Struktur','Nur ein Satz erkannt','Verbinde mindestens zwei vollständige Aussagen.']);
-    const score = Math.min(100, Math.max(45, 55 + Math.min(25, words) + Math.min(20, sentences * 5) - issues.length * 8));
-    const corrections = issues.length ? issues.map(issue => '<li><strong>' + esc(issue[0]) + ':</strong> ❌ ' + esc(issue[1]) + ' → ✅ ' + esc(issue[2]) + '</li>').join('') : '<li>✅ Keine offensichtlichen Basisfehler erkannt.</li>';
-    feedback.innerHTML = '<h3>Strukturiertes Feedback</h3><ul class="correction-list">' + corrections + '</ul><div class="score-grid"><span>Inhalt <b>' + score + '%</b></span><span>Struktur <b>' + Math.max(40,score-5) + '%</b></span><span>Wortschatz <b>' + Math.min(100,score+3) + '%</b></span><span>Grammatik <b>' + Math.max(40,score-2) + '%</b></span></div><div class="model-answer"><strong>Musterlösung / optimierter Text</strong><p>' + wordify(data.writingModel || 'Sehr geehrte Damen und Herren, ich möchte Ihnen ein Problem in meiner Wohnung melden. Bitte teilen Sie mir mit, wann eine Reparatur möglich ist. Vielen Dank für Ihre Rückmeldung.') + '</p></div>';
-    feedback.classList.remove('hidden'); completeCurrentTask(task); const skillDialog=task.closest('.dialog[data-skill-level]'); if(skillDialog) completeSkill(skillDialog.dataset.skillLevel,skillDialog.dataset.skillType,button);
-  };
-
-  let activeRecorder = null, activeStream = null, recordedChunks = [];
-  window.toggleRecording = async function (button) {
-    const panel = button.closest('.recorder-panel'); const status = panel.querySelector('.record-status');
-    if (activeRecorder?.state === 'recording') { activeRecorder.stop(); button.setAttribute('aria-pressed','false'); button.querySelector('span:last-child').textContent='Aufnahme starten'; return; }
-    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') { status.textContent='Aufnahme wird von diesem Browser nicht unterstützt.'; return; }
-    try {
-      activeStream = await navigator.mediaDevices.getUserMedia({audio:true}); recordedChunks=[]; activeRecorder=new MediaRecorder(activeStream);
-      activeRecorder.ondataavailable = event => { if (event.data.size) recordedChunks.push(event.data); };
-      activeRecorder.onstop = () => { const audio=panel.querySelector('.recorded-audio'); audio.src=URL.createObjectURL(new Blob(recordedChunks,{type:activeRecorder.mimeType||'audio/webm'})); audio.classList.remove('hidden'); status.textContent='Aufnahme bereit – jetzt vergleichen.'; activeStream?.getTracks().forEach(track=>track.stop()); activeRecorder=null; activeStream=null; completeCurrentTask(panel); const skillDialog=panel.closest('.dialog[data-skill-level]'); if(skillDialog){const key='skill-'+skillDialog.dataset.skillLevel+'-'+skillDialog.dataset.skillType;if(window.prof?.()&&!window.prof().done.includes(key)){window.prof().done.push(key);save();}} };
-      activeRecorder.start(); button.setAttribute('aria-pressed','true'); button.querySelector('span:last-child').textContent='Aufnahme stoppen'; status.textContent='● Aufnahme läuft …';
-    } catch (error) { status.textContent='Mikrofonzugriff wurde nicht erteilt.'; }
-  };
-
   window.publish = function () {
     const modal = document.getElementById('modal');
     const get = id => modal.querySelector('#' + id);
@@ -387,60 +161,6 @@
     const message = get('msg');
     if (message) { message.textContent = '✓ Aufgabe für ' + level + ' veröffentlicht.'; message.classList.remove('hidden'); }
     if (['A1','A2','B1','B2','C1','C2'].includes(level)) { s.page='levels'; s.level=level; window.view(); }
-  };
-
-  window.levels = function () {
-    const level = normalize(s.level);
-    const progress = window.prof ? window.prof() : { done:[], answers:0, right:0 };
-    const items = (db.content || []).filter(item => normalize(item.level || item.section) === level);
-    db.deletedTopics = Array.isArray(db.deletedTopics) ? db.deletedTopics : [];
-    const map = new Map();
-    (standardTopics[level] || []).filter(topic => !db.deletedTopics.includes(level + '::' + topic.name.toLowerCase())).forEach(topic => map.set(topic.name.toLowerCase(), { ...topic, tasks:[] }));
-    items.forEach(item => {
-      const name = item.topic || 'Neues Thema';
-      const key = name.toLowerCase();
-      if (!map.has(key)) map.set(key, { name, vocab:[], grammar:'Integrierte Grammatikregel wird mit dem Thema ergänzt.', tasks:[] });
-      map.get(key).tasks.push(item);
-    });
-    const cards = [...map.values()].map(topic => {
-      const taskCount = topic.tasks.length;
-      const solved = topic.tasks.filter(item => (progress.done || []).includes('task-' + Number(item.date))).length;
-      const percent = taskCount ? Math.round(solved / taskCount * 100) : 0;
-      return '<article class="card topic-card" data-topic="' + esc(topic.name) + '" data-level="' + esc(level) + '"><p class="eyebrow">THEMENMODUL · ' + esc(level) + '</p><h3>' + esc(topic.name) + '</h3><div class="topic-stats"><strong>Übungen: ' + taskCount + '</strong><span>Fortschritt: ' + percent + '% abgeschlossen</span><div class="progress"><i style="width:' + percent + '%"></i></div></div><div class="card-actions"><button class="primary" onclick="openTopicCard(this)">Thema öffnen</button>' + (adminOK() ? '<button class="danger-button" onclick="deleteTopic(this)">Löschen</button>' : '') + '</div></article>';
-    }).join('');
-    return '<div class="hero"><p class="eyebrow">THEMENBASIERTER LERNWEG</p><h1>Deutsch lernen – Thema für Thema.</h1><p>Jedes Modul verbindet Wortschatz, passende Grammatik und interaktive Übungen.</p></div><div class="head"><div><p class="eyebrow">SPRACHNIVEAUS</p><h2>Niveau ' + esc(level) + ' – Themen</h2></div><small>' + (progress.done || []).length + ' Lektionen abgeschlossen</small></div><div class="levels">' + ['A1','A2','B1','B2','C1','C2'].map(item => '<button class="' + (level === item ? 'active' : '') + '" onclick="s.level=\'' + item + '\';view()">' + item + '</button>').join('') + '</div><div class="grid cards">' + (cards || '<article class="card wide"><h3>Noch keine Themen</h3><p class="muted">Lege im Admin-Bereich ein neues Themenmodul an.</p></article>') + '</div>';
-  };
-
-  window.openTopicCard = button => { const card = button.closest('.topic-card'); window.openTopic(card.dataset.topic, card.dataset.level); };
-  window.deleteTopic = button => {
-    if (!adminOK()) return;
-    const card = button.closest('.topic-card'); const name = card.dataset.topic; const level = card.dataset.level;
-    if (!confirm('Thema „' + name + '“ und alle zugehörigen Aufgaben löschen?')) return;
-    db.content = (db.content || []).filter(item => !(normalize(item.level || item.section) === normalize(level) && String(item.topic || '').toLowerCase() === name.toLowerCase()));
-    db.deletedTopics = Array.isArray(db.deletedTopics) ? db.deletedTopics : []; const key = level + '::' + name.toLowerCase(); if (!db.deletedTopics.includes(key)) db.deletedTopics.push(key);
-    save(); view();
-  };
-
-  window.openTopic = function (name, level) {
-    const topic = (standardTopics[level] || []).find(item => item.name === name) || { name, vocab:[], grammar:'Integrierte Grammatikregel' };
-    const tasks = (db.content || []).filter(item => normalize(item.level || item.section) === normalize(level) && String(item.topic || '').toLowerCase() === String(name).toLowerCase());
-    const done = window.prof?.()?.done || [];
-    const taskHtml = tasks.length ? tasks.map(item => '<div class="task-list-item"><button class="secondary task-open" onclick="openPublishedTask(' + Number(item.date) + ')"><span>' + esc(item.type) + '</span><small>' + (done.includes('task-' + Number(item.date)) ? '✓ Erledigt' : (item.isNew ? '<span class="new-badge">✨ Neu</span>' : 'Öffnen')) + '</small></button>' + (adminOK() ? '<button class="danger-button" onclick="deleteTaskById(\'' + esc(taskIdentity(item)) + '\',\'topic\',\'' + esc(level) + '\',\'' + esc(name).replace(/&#39;/g,"\\'") + '\')">Löschen</button>' : '') + '</div>').join('') : '<p class="muted">Für dieses Thema sind noch keine zusätzlichen Übungen veröffentlicht.</p>';
-    window.open('<div class="dialog"><div class="dialog-top"><div><p class="eyebrow">NIVEAU ' + esc(level) + ' · THEMENMODUL</p><h2>' + esc(name) + '</h2></div><button class="icon">✕</button></div><div class="topic-panel grammar-first"><h4>✦ Grammatikerklärung</h4><p class="clickable-copy">' + wordify(topic.grammar) + '</p></div><div class="topic-panel"><h4>🧩 Interaktive Übungen</h4><div class="task-list">' + taskHtml + '</div></div></div>');
-  };
-
-  window.deleteTask = function (date, topicName, level) {
-    if (!adminOK()) return;
-    if (!confirm('Diese Aufgabe löschen?')) return;
-    db.content = (db.content || []).filter(item => Number(item.date) !== Number(date)); save(); window.close(); window.openTopic(topicName, level);
-  };
-
-  window.openPublishedTask = function (date) {
-    const item = (db.content || []).find(task => Number(task.date) === Number(date));
-    if (!item) return;
-    const body = item.type === 'Schreiben' ? renderWritingTask(item) : renderTask(item.type, item.content || item.data?.content || '', item.audio_url);
-    const isDone = window.prof?.()?.done?.includes('task-' + Number(item.date));
-    window.open('<div class="dialog" data-task-date="' + Number(item.date) + '"><div class="dialog-top"><div><p class="eyebrow">' + esc(item.section) + ' · ' + esc(item.type) + '</p><h2>' + esc(item.topic) + '</h2></div><button class="icon">✕</button></div>' + mediaHtml(item) + body + '<div class="task-completion"><button class="secondary" ' + (isDone ? 'disabled' : '') + ' onclick="markTaskDone(' + Number(item.date) + ',this)">' + (isDone ? '✓ Erledigt' : 'Als erledigt markieren') + '</button></div></div>');
   };
 
   function translationFor(wordValue) { const clean=String(wordValue||'').replace(/^(der|die|das)\s+/i,'').trim(); return translations[clean] || translations[clean.toLowerCase()] || 'Übersetzung noch nicht hinterlegt'; }
@@ -619,7 +339,6 @@
   const retainedShellForMessages=window.shell;
   window.shell=function(){retainedShellForMessages();document.getElementById('aiTutorLaunch')?.remove();const actions=document.querySelector('.top .actions');if(user?.email&&!adminOK()&&actions&&!document.getElementById('studentMessageButton')){ensureMessages();const unread=db.messages.filter(message=>message.studentEmail===user.email&&message.from==='admin'&&!message.readByStudent).length,button=document.createElement('button');button.id='studentMessageButton';button.className='message-button';button.textContent='Nachricht an Lehrerin ✉️'+(unread?' ('+unread+')':'');button.onclick=openStudentMessages;actions.prepend(button)}};
   function ensureContentIds(){let changed=false;(db.content||[]).forEach(item=>{if(!item.id){item.id='task-'+Number(item.date||Date.now());changed=true}if(!item.createdAt){item.createdAt=Number(item.date||Date.now());changed=true}});if(changed)save()}
-  function taskIdentity(item){return String(item.id||('task-'+Number(item.date)))}
   function renderStructuredManager(){const host=document.getElementById('structuredContentManager');if(!host)return;ensureContentIds();const tasks=(db.content||[]).slice().reverse();host.innerHTML='<article class="card admin-content-list"><h3>Erstellte Aufgaben</h3>'+(tasks.length?tasks.map(item=>'<div class="admin-content-row"><span><strong>'+esc(item.topic)+'</strong><small>'+esc(item.level||item.section)+' · '+esc(item.block||'Grammatik')+(item.skill?' · '+esc(item.skill):'')+'</small></span><div><button class="secondary" onclick="editAdminTask('+Number(item.date)+')">Bearbeiten</button><button class="danger-button" onclick="deleteTaskById(\''+esc(taskIdentity(item))+'\')">🗑️ Löschen</button></div></div>').join(''):'<p class="muted">Noch keine Aufgaben.</p>')+'</article>';}
   window.deleteTaskById=function(id,context,level,name){if(!adminOK()||!confirm('Möchtest du dieses Element wirklich löschen?'))return;db.content=(db.content||[]).filter(item=>taskIdentity(item)!==String(id));Object.values(db.users||{}).forEach(profile=>{profile.done=(profile.done||[]).filter(key=>{const existing=(db.content||[]).find(item=>'task-'+Number(item.date)===key);return !!existing||!key.startsWith('task-')})});save();if(context==='topic'){close();openTopic(level,name)}else if(context==='skill'){close();openSkillModule(level,name)}else if(document.getElementById('structuredContentManager'))renderStructuredManager();else view();};
   const retainedLevelsWithBinarySkillProgress=window.levels;
@@ -751,113 +470,8 @@
   window.openPublishedTask=function(date){retainedEditingPublishedTask(date);if(!adminOK())return;const item=(db.content||[]).find(entry=>Number(entry.date)===Number(date)),top=document.querySelector('.dialog[data-task-date] .dialog-top');if(item&&top)addEditButton(top,item)};
   const retainedEditingManager=renderStructuredManager;
   renderStructuredManager=function(){retainedEditingManager();if(!adminOK())return;document.querySelectorAll('#structuredContentManager .admin-content-row').forEach((row,index)=>{const tasks=(db.content||[]).slice().reverse();const old=row.querySelector('button.secondary');if(old&&tasks[index])old.onclick=()=>beginEditTask(encodeURIComponent(taskIdentity(tasks[index])))})};
-  /* Premium: Fehlerprotokoll, Fokus-Training und Spaced Repetition. */
-  function activeTaskFor(element){const date=Number(element?.closest?.('[data-task-date]')?.dataset.taskDate);return Number.isFinite(date)?(db.content||[]).find(item=>Number(item.date)===date):null}
-  function errorCategory(item,text=''){const source=((item?.topic||'')+' '+(item?.type||'')+' '+text).toLowerCase();const rules=[['Akkusativ',/akkusativ|\bden\b|\beinen\b/],['Dativ',/dativ|\bdem\b|\beinem\b/],['sein / haben',/sein|haben|ist|sind|hat|haben/],['Artikel',/artikel|\bder\b|\bdie\b|\bdas\b/],['Verbformen',/verb|konjug|präteritum|perfekt/],['Wortstellung',/satzbau|wortstellung|position/]];return rules.find(([,pattern])=>pattern.test(source))?.[0]||item?.topic||item?.type||'Wortschatz'}
-  window.recordLearningError=function(element,detail='',correctAnswer=''){
-    const profile=window.prof?.();if(!profile||adminOK())return;const item=activeTaskFor(element),category=errorCategory(item,detail+' '+correctAnswer);profile.userErrors=profile.userErrors||{};
-    const entry=profile.userErrors[category]||{count:0,streak:0,intervalDays:0,nextReview:0,examples:[]};entry.count++;entry.streak=0;entry.intervalDays=0;entry.lastWrong=Date.now();entry.nextReview=Date.now();entry.type=item?.type||'Übung';entry.topic=item?.topic||category;entry.detail=String(detail||'').trim();entry.correctAnswer=String(correctAnswer||'').trim();entry.examples=[...new Set([...(entry.examples||[]),entry.detail].filter(Boolean))].slice(-5);profile.userErrors[category]=entry;save();
-  };
-  window.completeFocusReview=function(encodedCategory,known=true){const profile=window.prof?.(),category=decodeURIComponent(encodedCategory),entry=profile?.userErrors?.[category];if(!entry)return;if(known){entry.streak=(entry.streak||0)+1;entry.intervalDays=[1,3,7,14,30][Math.min(entry.streak-1,4)];entry.nextReview=Date.now()+entry.intervalDays*86400000}else{entry.count++;entry.streak=0;entry.intervalDays=0;entry.nextReview=Date.now()+10*60000}save();view()};
-  window.reviewVocabulary=function(index,known){const profile=window.prof?.(),word=profile?.words?.[index];if(!word||typeof word!=='object')return;word.review=word.review||{streak:0,nextReview:0};if(known){word.review.streak++;word.review.intervalDays=[1,3,7,14,30][Math.min(word.review.streak-1,4)];word.review.nextReview=Date.now()+word.review.intervalDays*86400000}else{word.review.streak=0;word.review.intervalDays=0;word.review.nextReview=Date.now()+10*60000}save();view()};
-  function focusTraining(){
-    const profile=window.prof?.();if(!profile)return'<article class="card"><h2>Persönliche Wiederholung</h2><p>Bitte melde dich an, damit deine Fehler lokal gespeichert werden.</p><button class="primary" onclick="login(\'login\')">Anmelden</button></article>';
-    const errors=Object.entries(profile.userErrors||{}).sort((a,b)=>(b[1].count-a[1].count)||((a[1].nextReview||0)-(b[1].nextReview||0))),now=Date.now();
-    const errorCards=errors.map(([category,entry])=>{const due=!entry.nextReview||entry.nextReview<=now;return'<article class="card focus-card '+(due?'due':'scheduled')+'"><div class="focus-card-head"><span class="premium-badge">PREMIUM</span><span class="review-status">'+(due?'Jetzt wiederholen':'Geplant')+'</span></div><h3>'+esc(category)+'</h3><p class="muted">'+esc(entry.topic||entry.type||'Übung')+' · '+entry.count+' Fehler</p>'+(entry.detail?'<div class="focus-question"><strong>Dein Fokus:</strong> '+esc(entry.detail)+'</div>':'')+(entry.correctAnswer?'<details><summary>Lösung anzeigen</summary><p>'+esc(entry.correctAnswer)+'</p></details>':'')+'<div class="focus-actions"><button class="secondary" onclick="completeFocusReview(\''+encodeURIComponent(category)+'\',false)">Noch üben</button><button class="primary" onclick="completeFocusReview(\''+encodeURIComponent(category)+'\',true)">Gewusst ✓</button></div>'+(entry.intervalDays?'<small>Nächste Stufe: '+entry.intervalDays+' Tag(e)</small>':'')+'</article>'}).join('');
-    const words=(profile.words||[]).map((value,index)=>({entry:simpleVocabularyRecord(value,index),raw:value,index})).filter(({raw})=>!raw?.review?.nextReview||raw.review.nextReview<=now).slice(0,6).map(({entry,index})=>'<article class="card focus-card vocab-review"><p class="eyebrow">VOKABEL-WIEDERHOLUNG</p><h3>'+esc(entry.german)+'</h3><details><summary>Übersetzung anzeigen</summary><p class="translation">'+esc(entry.translation||'Noch nicht eingetragen')+'</p></details><button class="speaker" onclick="say(\''+esc(entry.german).replace(/&#39;/g,"\\'")+'\')">🔊 Aussprache</button><div class="focus-actions"><button class="secondary" onclick="reviewVocabulary('+index+',false)">Noch üben</button><button class="primary" onclick="reviewVocabulary('+index+',true)">Gewusst ✓</button></div></article>').join('');
-    return'<div class="hero focus-hero"><p class="eyebrow">PERSÖNLICHE WIEDERHOLUNG · PREMIUM</p><h1>Meine Schwachstellen</h1><p>Häufige Fehler zuerst, danach Wiederholungen in wachsenden Abständen.</p></div><div class="head"><div><h2>Fokus-Training</h2><p class="muted">'+errors.filter(([,entry])=>!entry.nextReview||entry.nextReview<=now).length+' Themen sind jetzt fällig.</p></div></div><div class="grid cards focus-grid">'+(errorCards||'<article class="card wide"><h3>Noch keine Schwachstellen erkannt 🎉</h3><p class="muted">Falsche Antworten aus Übungen erscheinen automatisch hier.</p></article>')+'</div><div class="head focus-vocab-head"><div><h2>Vokabeln wiederholen</h2><p class="muted">Nach dem Karteikarten-Prinzip geplant.</p></div></div><div class="grid cards focus-grid">'+(words||'<article class="card wide"><p class="muted">Aktuell sind keine Vokabeln fällig.</p></article>')+'</div>';
-  }
-  if(typeof nav!=='undefined'&&!nav.some(item=>item[0]==='focus'))nav.splice(2,0,['focus','🎯','Fokus-Training']);
-  const retainedFocusView=window.view;
-  window.view=function(){if(s.page!=='focus')return retainedFocusView();if(user){prof().last={page:s.page,level:s.level};save()}shell();document.getElementById('headerTitle').textContent='Persönliche Wiederholung';document.getElementById('appView').innerHTML=focusTraining();renderUnifiedModeControl()};
-  const retainedTrackedChoice=window.choiceCheck;window.choiceCheck=function(button,correct){if(!correct){const right=[...button.parentElement.querySelectorAll('button')].find(node=>/choiceCheck\(this,\s*true/.test(node.getAttribute('onclick')||''));recordLearningError(button,button.textContent.trim(),right?.textContent.trim()||'')}return retainedTrackedChoice(button,correct)};
-  const retainedTrackedContext=window.contextCheck;window.contextCheck=function(select,correct){if(select.value&&select.value!==correct)recordLearningError(select,select.value,correct);return retainedTrackedContext(select,correct)};
-  const retainedTrackedGap=window.checkGapTask;window.checkGapTask=function(button){retainedTrackedGap(button);button.closest('.gap-exercise')?.querySelectorAll('.gap-drop.incorrect').forEach(slot=>recordLearningError(slot,slot.dataset.answer||'Leere Lücke',slot.dataset.correct||''))};
-  const retainedTrackedCorrectionWord=window.chooseCorrectionWord;window.chooseCorrectionWord=function(button){if(button.dataset.error!=='true')recordLearningError(button,button.textContent.trim(),'Fehlerwort finden');return retainedTrackedCorrectionWord(button)};
-  const retainedTrackedCategory=window.checkCategorization;window.checkCategorization=function(button){retainedTrackedCategory(button);button.closest('.categorization-exercise')?.querySelectorAll('.sort-item.incorrect').forEach(item=>recordLearningError(item,item.textContent.trim(),item.dataset.correct||''))};
-  const retainedTrackedTf=window.answerTrueFalse;window.answerTrueFalse=function(button,answer,correct){if(answer!==correct)recordLearningError(button,answer,correct);return retainedTrackedTf(button,answer,correct)};
-  const retainedTrackedChat=window.answerChat;window.answerChat=function(button,correct){if(!correct)recordLearningError(button,button.textContent.trim(),'Passende Dialogantwort');return retainedTrackedChat(button,correct)};
-  const retainedTrackedOdd=window.answerOddOne;window.answerOddOne=function(button,correct){if(!correct)recordLearningError(button,button.textContent.trim(),'Unpassendes Wort');return retainedTrackedOdd(button,correct)};
-  /* Alltagssituationen innerhalb von Beruf & Spezial. */
-  const retainedEverydayCareer=window.career;
-  window.career=function(){const base=retainedEverydayCareer();return base+'<section class="everyday-section"><div class="head"><div><p class="eyebrow">BERUF & ALLTAG</p><h2>Alltagssituationen</h2><p class="muted">Reale Dialoge, passender Wortschatz und interaktive Übungen.</p></div></div><div class="grid cards everyday-grid">'+everydaySituations.map(item=>'<article class="card everyday-card"><span class="everyday-icon">'+item.icon+'</span><h3>'+esc(item.title)+'</h3><p class="muted">'+esc(item.intro)+'</p><button class="primary" onclick="openEverydaySituation(\''+item.id+'\')">Situation üben</button></article>').join('')+'</div></section>'};
-  window.openEverydaySituation=function(id){const item=everydaySituations.find(entry=>entry.id===id);if(!item)return;window.open('<div class="dialog everyday-dialog"><div class="dialog-top"><div><p class="eyebrow">ALLTAGSSITUATION</p><h2>'+item.icon+' '+esc(item.title)+'</h2></div><button class="icon">✕</button></div><section class="everyday-intro"><h3>Einführung</h3><p class="clickable-copy">'+wordify(item.intro)+'</p></section><section><h3>Realistischer Dialog</h3>'+renderChatSimulator(item.dialog)+'</section><section><h3>Wortschatz</h3><div class="everyday-vocab">'+item.vocab.map(word=>'<button class="word-tile" onclick="openWordMenu(\''+esc(word).replace(/&#39;/g,"\\'")+'\')">'+esc(word)+' <span>＋</span></button>').join('')+'</div></section><section><h3>Interaktive Übung</h3>'+renderTrueFalseTask(item.statement)+'</section></div>')};
-  /* Einmalige, verlustfreie Bereinigung bereits gespeicherter UTF-8-Inhalte. */
-  function repairStoredEncoding(value){
-    if(typeof value==='string'){
-      if(!/[\u0400-\u045f\u2013-\u2026]/.test(value))return value;
-      try{
-        const legacyDecoder=new TextDecoder('windows-1251'),utf8Decoder=new TextDecoder('utf-8',{fatal:true}),reverse=new Map();
-        for(let byte=0;byte<256;byte++){const char=legacyDecoder.decode(Uint8Array.of(byte));if(!reverse.has(char))reverse.set(char,byte)}
-        return value.replace(/[^\x00-\x7f]+/g,run=>{const bytes=[];for(const char of run){if(!reverse.has(char))return run;bytes.push(reverse.get(char))}try{return utf8Decoder.decode(Uint8Array.from(bytes))}catch{return run}})
-      }catch{return value}
-    }
-    if(Array.isArray(value))return value.map(repairStoredEncoding);
-    if(value&&typeof value==='object'){Object.keys(value).forEach(key=>{value[key]=repairStoredEncoding(value[key])});return value}
-    return value;
-  }
-  function migrateStoredContent(){
-    db.settings=db.settings||{};
-    if(db.settings.utf8MigrationVersion===2)return;
-    repairStoredEncoding(db);
-    Object.values(db.users||{}).forEach(profile=>{
-      profile.words=Array.isArray(profile.words)?profile.words.map((entry,index)=>{
-        if(entry&&typeof entry==='object'){const german=String(entry.german||entry.word||entry.base||'');return{...entry,id:entry.id||('vocab-migrated-'+index),german,word:entry.word||german,base:entry.base||german,translation:String(entry.translation||'')}}
-        const german=String(entry||'');return{id:'vocab-migrated-'+index,german,word:german,base:german,translation:''}
-      }):[];
-    });
-    db.settings.utf8MigrationVersion=2;
-    save();
-  }
-  migrateStoredContent();
-  /* Vereinfachter persoenlicher Wortschatz: bewusst manuell, ohne KI, Wortarterkennung oder Kategorien. */
-  function simpleVocabularyRecord(value,index=0){
-    if(value&&typeof value==='object')return{id:value.id||('vocab-'+index),german:String(value.german||value.word||value.base||''),translation:String(value.translation||'')};
-    return{id:'vocab-'+index,german:String(value||''),translation:''};
-  }
-  window.pronounceVocabularyInput=function(){const value=document.getElementById('simpleGermanWord')?.value.trim();if(value)say(value)};
-  window.saveSimpleVocabulary=function(){
-    const profile=window.prof?.();if(!profile)return login('login');
-    const german=document.getElementById('simpleGermanWord')?.value.trim()||'',translation=document.getElementById('simpleTranslation')?.value.trim()||'';
-    if(!german||!translation)return;
-    profile.words=Array.isArray(profile.words)?profile.words:[];
-    profile.words.push({id:'vocab-'+Date.now(),german,word:german,base:german,translation,createdAt:Date.now()});
-    save();view();
-  };
-  window.saveWordFromModal=function(){
-    const profile=window.prof?.();if(!profile)return login('login');
-    const german=document.getElementById('modalGermanWord')?.value.trim()||'',translation=document.getElementById('modalWordTranslation')?.value.trim()||'';
-    if(!german||!translation)return;
-    profile.words=Array.isArray(profile.words)?profile.words:[];
-    profile.words.push({id:'vocab-'+Date.now(),german,word:german,base:german,translation,createdAt:Date.now()});
-    save();close();view();
-  };
-  window.openWordMenu=function(rawWord){
-    const word=String(rawWord||'').trim();
-    window.open('<div class="dialog compact-dialog simple-word-dialog"><div class="dialog-top"><div><p class="eyebrow">PERSÖNLICHER WORTSCHATZ</p><h2>Vokabel speichern</h2></div><button class="icon">✕</button></div><form class="form simple-vocab-form" onsubmit="event.preventDefault();saveWordFromModal()"><label>Wort / Phrase auf Deutsch<input id="modalGermanWord" value="'+esc(word)+'" required></label><label>Übersetzung<input id="modalWordTranslation" placeholder="z. B. auf Russisch" required></label><div class="simple-vocab-actions"><button type="button" class="secondary" onclick="say(document.getElementById(\'modalGermanWord\').value)">🔊 Aussprache</button><button class="primary">+ Speichern</button></div></form></div>');
-  };
-  window.saveClickedWord=function(wordValue){openWordMenu(wordValue)};
-  window.dict=function(){
-    const profile=window.prof?.()||{words:[]},records=(profile.words||[]).map(simpleVocabularyRecord).filter(entry=>entry.german);
-    const cards=records.map(entry=>'<article class="card dictionary-card simple-vocab-card"><div><p class="eyebrow">DEUTSCH</p><h3>'+esc(entry.german)+'</h3><p class="translation">'+esc(entry.translation||'Übersetzung noch nicht eingetragen')+'</p></div><div class="simple-vocab-card-actions"><button class="speaker" onclick="say(\''+esc(entry.german).replace(/&#39;/g,"\\'")+'\')" aria-label="Aussprache anhören">🔊 Aussprache</button>'+(adminOK()?'<button class="danger-button" onclick="deletePersonalWordById(\''+esc(entry.id)+'\')">🗑️ Löschen</button>':'')+'</div></article>').join('');
-    return '<div class="head"><div><p class="eyebrow">PERSÖNLICHER WORTSCHATZ</p><h2>Meine Vokabeln</h2><p class="muted">Trage die vollständige deutsche Form und deine Übersetzung selbst ein.</p></div><button class="secondary" onclick="cards()">🃏 Karteikarten</button></div><form class="card simple-vocab-form" onsubmit="event.preventDefault();saveSimpleVocabulary()"><label>Wort / Phrase auf Deutsch<input id="simpleGermanWord" placeholder="der Tisch, die Tische oder gehen | geht, ging, ist gegangen" required></label><label>Übersetzung<input id="simpleTranslation" placeholder="z. B. auf Russisch" required></label><div class="simple-vocab-actions"><button type="button" class="secondary" onclick="pronounceVocabularyInput()">🔊 Aussprache</button><button class="primary">+ Speichern</button></div></form><div class="grid cards simple-vocab-list">'+(cards||'<article class="card wide simple-vocab-empty"><h3>Noch keine Vokabeln gespeichert.</h3><p class="muted">Deine neuen Wörter erscheinen hier als klare Lernkarten.</p></article>')+'</div>';
-  };
-  window.deletePersonalWordById=function(id){if(!confirm('Möchtest du diese Vokabel wirklich löschen?'))return;const profile=window.prof?.();if(!profile)return;profile.words=(profile.words||[]).filter((entry,index)=>simpleVocabularyRecord(entry,index).id!==id);save();view()};
-  /* Sichere automatische Formen aus einem integrierten deutschen Lernlexikon. */
-  function enrichVocabularyWord(raw){const source=String(raw||'').trim().replace(/\s+/g,' ');if(!source)return{source:'',base:'',display:'',kind:'Grundform',enriched:false};if(/[|,]/.test(source))return{source,base:source.split(/[|,]/)[0].replace(/^(der|die|das)\s+/i,'').trim(),display:source,kind:'Vollständige Form',enriched:true};const key=source.replace(/[.!?;:()]/g,'').toLocaleLowerCase('de-DE');const found=Object.values(vocabularyForms).find(entry=>entry.aliases.includes(key));if(found)return{source,base:found.base,display:found.display,kind:found.kind,enriched:true};return{source,base:source,display:source,kind:'Grundform',enriched:false}}
-  function enrichedRecord(value,index=0){const original=simpleVocabularyRecord(value,index),stored=value&&typeof value==='object'?value:{},info=enrichVocabularyWord(stored.source||original.german);return{...original,source:stored.source||info.source,base:stored.base||info.base,german:stored.german&&stored.enriched!==undefined?stored.german:info.display,kind:stored.kind||info.kind,enriched:stored.enriched!==undefined?stored.enriched:info.enriched}}
-  window.previewVocabularyEnrichment=function(input,targetId){const target=document.getElementById(targetId),info=enrichVocabularyWord(input.value);if(!target)return;target.innerHTML=info.source?'<span>'+(info.enriched?'Automatisch ergänzt:':'Grundform:')+'</span><strong>'+esc(info.display)+'</strong>':''};
-  window.saveSimpleVocabulary=function(){const profile=window.prof?.();if(!profile)return login('login');const source=document.getElementById('simpleGermanWord')?.value.trim()||'',translation=document.getElementById('simpleTranslation')?.value.trim()||'';if(!source||!translation)return;const info=enrichVocabularyWord(source);profile.words=Array.isArray(profile.words)?profile.words:[];profile.words.push({id:'vocab-'+Date.now(),source:info.source,base:info.base,german:info.display,word:info.display,kind:info.kind,enriched:info.enriched,translation,createdAt:Date.now()});save();view()};
-  window.saveWordFromModal=function(){const profile=window.prof?.();if(!profile)return login('login');const source=document.getElementById('modalGermanWord')?.value.trim()||'',translation=document.getElementById('modalWordTranslation')?.value.trim()||'';if(!source||!translation)return;const info=enrichVocabularyWord(source);profile.words=Array.isArray(profile.words)?profile.words:[];profile.words.push({id:'vocab-'+Date.now(),source:info.source,base:info.base,german:info.display,word:info.display,kind:info.kind,enriched:info.enriched,translation,createdAt:Date.now()});save();close();view()};
-  window.openWordMenu=function(rawWord){const word=String(rawWord||'').trim();window.open('<div class="dialog compact-dialog simple-word-dialog"><div class="dialog-top"><div><p class="eyebrow">PERSÖNLICHER WORTSCHATZ</p><h2>Vokabel speichern</h2></div><button class="icon">✕</button></div><form class="form personal-vocab-form" onsubmit="event.preventDefault();saveWordFromModal()"><label>Deutsches Wort<input id="modalGermanWord" value="'+esc(word)+'" oninput="previewVocabularyEnrichment(this,\'modalEnrichmentPreview\')" required></label><div id="modalEnrichmentPreview" class="enrichment-preview"></div><label>Eigene Übersetzung<input id="modalWordTranslation" required></label><div class="simple-vocab-actions"><button type="button" class="secondary" onclick="say(document.getElementById(\'modalGermanWord\').value)">🔊 Aussprache</button><button class="primary">+ Speichern</button></div></form></div>');previewVocabularyEnrichment(document.getElementById('modalGermanWord'),'modalEnrichmentPreview')};
-  function normalizeTeacherVocabulary(){db.teacherVocab=Array.isArray(db.teacherVocab)?db.teacherVocab:[];let changed=false;db.teacherVocab.forEach((entry,index)=>{entry.id=entry.id||'teacher-'+index;const info=enrichVocabularyWord(entry.source||entry.word);if(!entry.source)entry.source=entry.word||info.source;if(entry.word!==info.display||!entry.kind){entry.word=info.display;entry.base=info.base;entry.kind=info.kind;entry.enriched=info.enriched;changed=true}});if(changed)save()}
-  window.addTeacherWord=function(){if(!adminOK())return;normalizeTeacherVocabulary();const input=document.getElementById('teacherWord'),info=enrichVocabularyWord(input.value);if(!info.source)return;db.teacherVocab.push({id:'word-'+Date.now(),level:document.getElementById('teacherWordLevel').value,source:info.source,base:info.base,word:info.display,kind:info.kind,enriched:info.enriched});save();input.value=''};
-  window.setVocabularyLevel=function(level){s.vocabLevel=level;view()};
-  window.dict=function(){
-    normalizeTeacherVocabulary();s.tab=s.tab==='mine'?'mine':'topics';s.vocabLevel=s.vocabLevel||s.level||'A1';const profile=window.prof?.()||{words:[],teacherTranslations:{}},records=(profile.words||[]).map(enrichedRecord).filter(entry=>entry.german),teacher=db.teacherVocab.filter(entry=>(entry.level||'A1')===s.vocabLevel);
-    const tabs='<div class="vocabulary-tabs" role="tablist"><button role="tab" aria-selected="'+(s.tab==='topics')+'" class="'+(s.tab==='topics'?'active':'')+'" onclick="s.tab=\'topics\';view()">Lektions-Wortschatz / Pflicht-Vokabeln</button><button role="tab" aria-selected="'+(s.tab==='mine')+'" class="'+(s.tab==='mine'?'active':'')+'" onclick="s.tab=\'mine\';view()">Mein persönlicher Wortschatz <span>'+records.length+'</span></button></div>';
-    if(s.tab==='topics'){const levels='<div class="levels vocab-levels">'+['A1','A2','B1','B2','C1','C2'].map(level=>'<button class="'+(s.vocabLevel===level?'active':'')+'" onclick="setVocabularyLevel(\''+level+'\')">'+level+'</button>').join('')+'</div>',cards=teacher.map(entry=>'<article class="card dictionary-card lesson-vocab-card"><p class="eyebrow">PFLICHT-VOKABEL · '+esc(entry.level||'A1')+'</p><h3>'+esc(entry.word)+'</h3><p class="word-type">'+esc(entry.kind||'Grundform')+'</p><label class="student-translation">Deine Übersetzung<input placeholder="Übersetzung selbst eintragen" value="'+esc(profile.teacherTranslations?.[entry.id]||'')+'" onchange="saveTeacherTranslation(\''+entry.id+'\',this.value)"></label><button class="speaker" onclick="say(\''+esc(entry.base||entry.word).replace(/&#39;/g,"\\'")+'\')">🔊 Aussprache</button>'+(adminOK()?'<button class="danger-button" onclick="deleteTeacherWordById(\''+entry.id+'\')">🗑️ Löschen</button>':'')+'</article>').join('');return'<div class="head"><div><p class="eyebrow">WORTSCHATZ</p><h2>Lektions-Wortschatz</h2><p class="muted">Pflicht-Vokabeln der Lehrerin mit vollständigen deutschen Formen.</p></div></div>'+tabs+levels+'<div class="grid cards lesson-vocab-grid">'+(cards||'<article class="card wide"><h3>Noch keine Pflicht-Vokabeln für '+esc(s.vocabLevel)+'</h3></article>')+'</div>'}
-    const cards=records.map(entry=>'<article class="card dictionary-card personal-vocab-card"><div><p class="eyebrow">'+esc(entry.kind)+'</p><h3>'+esc(entry.german)+'</h3>'+(!entry.enriched?'<small class="form-note">Keine sichere Zusatzform im lokalen Lexikon – Grundform beibehalten.</small>':'')+'<p class="translation">'+esc(entry.translation||'Übersetzung noch nicht eingetragen')+'</p></div><div class="simple-vocab-card-actions"><button class="speaker" onclick="say(\''+esc(entry.base||entry.german).replace(/&#39;/g,"\\'")+'\')">🔊 Aussprache</button><button class="danger-button" onclick="deletePersonalWordById(\''+entry.id+'\')">🗑️ Löschen</button></div></article>').join('');return'<div class="head"><div><p class="eyebrow">WORTSCHATZ</p><h2>Mein persönlicher Wortschatz</h2><p class="muted">Ein Wort eingeben – sichere Artikel, Plural- oder Verbformen werden automatisch ergänzt.</p></div><button class="secondary" onclick="cards()">🃏 Karteikarten</button></div>'+tabs+'<form class="card personal-vocab-form" onsubmit="event.preventDefault();saveSimpleVocabulary()"><label>Deutsches Wort<input id="simpleGermanWord" placeholder="z. B. Name oder gehen" oninput="previewVocabularyEnrichment(this,\'personalEnrichmentPreview\')" required></label><div id="personalEnrichmentPreview" class="enrichment-preview" aria-live="polite"></div><label>Eigene Übersetzung<input id="simpleTranslation" placeholder="z. B. auf Russisch" required></label><div class="simple-vocab-actions"><button type="button" class="secondary" onclick="pronounceVocabularyInput()">🔊 Aussprache</button><button class="primary">+ Speichern</button></div></form><div class="grid cards personal-vocab-grid">'+(cards||'<article class="card wide"><h3>Noch keine persönlichen Vokabeln gespeichert.</h3></article>')+'</div>';
-  };
+  window.Deutschraum.progress.installFocusTraining({db,esc,save,adminOK,nav,s,getUser:()=>user,prof:window.prof,shell,view:window.view,renderUnifiedModeControl});
+  window.Deutschraum.lessons.installEverydayCareer({esc,wordify,renderChatSimulator,renderTrueFalseTask});
+  window.Deutschraum.dictionary.installFinalDictionary({db,s,save,view:window.view,close:window.close,esc,adminOK});
   ensureContentIds();
 })();

@@ -1,4 +1,14 @@
 /* Deutschraum: app responsibilities. Classic scripts preserve HTML handler compatibility. */
+window.Deutschraum = window.Deutschraum || {};
+Deutschraum.state = Deutschraum.state || {};
+Deutschraum.utils = Deutschraum.utils || {};
+Deutschraum.app = Deutschraum.app || {};
+Deutschraum.lessons = Deutschraum.lessons || {};
+Deutschraum.exercises = Deutschraum.exercises || {};
+Deutschraum.dictionary = Deutschraum.dictionary || {};
+Deutschraum.progress = Deutschraum.progress || {};
+Deutschraum.admin = Deutschraum.admin || {};
+Deutschraum.auth = Deutschraum.auth || {};
 const ADMIN='e.sokolenko280128@gmail.com',K='deutschraum-live-v1',D={users:{},content:[],analytics:{premium:0,views:{}},settings:{money:false,stripePublic:'',legal:{name:'[Name]',address:'[Adresse]',email:'[E-Mail]',tax:'[Steuernummer]'}}};let db=Object.assign(D,JSON.parse(localStorage.getItem(K)||'{}'));db.settings=Object.assign(D.settings,db.settings||{});db.settings.legal=Object.assign(D.settings.legal,db.settings.legal||{});db.analytics=Object.assign(D.analytics,db.analytics||{});let user=JSON.parse(localStorage.getItem(K+'-session')||'null'),s={page:'levels',level:'A1',tab:'topics'};const nav=[['levels','📚','Niveaus'],['dict','📖','Wortschatz'],['career','💼','Beruf']];
 function save(){localStorage.setItem(K,JSON.stringify(db));localStorage.setItem(K+'-session',JSON.stringify(user))}
 function adminOK(){return user&&user.email.toLowerCase()===ADMIN}
@@ -15,3 +25,15 @@ function say(x){speechSynthesis.cancel();let u=new SpeechSynthesisUtterance(x);u
 function open(x){const modalEl=document.getElementById('modal');modalEl.innerHTML=x;modalEl.classList.add('show');configureAdminSection();const closeButton=modalEl.querySelector('.dialog-top .icon');if(closeButton){closeButton.classList.add('modal-close');closeButton.addEventListener('click',close)}}
 function close(){const modalEl=document.getElementById('modal');modalEl.classList.remove('show');modalEl.innerHTML=''}
 function esc(x){return String(x||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function normalize(x){return String(x||'').trim().toUpperCase()}
+function taskIdentity(item){return String(item.id||('task-'+Number(item.date)))}
+
+Object.defineProperties(Deutschraum.state, {
+  db: { get: () => db },
+  user: { get: () => user },
+  route: { get: () => s },
+  storageKey: { value: K, enumerable: true }
+});
+Deutschraum.utils.escape = esc;
+Deutschraum.utils.normalize = normalize;
+Object.assign(Deutschraum.app, { save, go, shell, view, open, close, say, taskIdentity });
