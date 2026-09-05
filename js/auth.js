@@ -1,0 +1,5 @@
+/* Deutschraum: auth responsibilities. Classic scripts preserve HTML handler compatibility. */
+function login(m){open('<div class="dialog"><div class="dialog-top"><h2>'+ (m==='login'?'Anmelden':'Registrieren') +'</h2><button class="icon" onclick="close()">✕</button></div><form class="form" style="margin-top:15px" onsubmit="event.preventDefault();finish()"><label>E-Mail<input id="email" required type="email"></label><label>Passwort<input required type="password" minlength="4"></label><button class="primary">'+(m==='login'?'Anmelden':'Konto erstellen')+'</button></form></div>')}
+function finish(){let e=email.value.trim().toLowerCase();user={email:e};if(!db.users[e])db.users[e]={done:[],right:0,answers:0,words:[],last:{page:'levels',level:'A1'}};s=db.users[e].last;save();close();view()}
+function logout(){user=null;save();view()}
+function profile(){let p=prof();open('<div class="dialog"><div class="dialog-top"><h2>Mein Profil</h2><button class="icon" onclick="close()">✕</button></div><p>'+user.email+'</p><p class="muted">'+p.done.length+' Lektionen · '+p.words.length+' Wörter · '+p.answers+' Aufgaben</p></div>')}
