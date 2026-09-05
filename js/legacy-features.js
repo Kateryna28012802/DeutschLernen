@@ -4,6 +4,18 @@
   const esc = value => String(value || '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[char]));
   const originalOpen = window.open;
   const originalLevels = window.levels;
+  /* Declarative content is loaded from data/*.js before this renderer. */
+  const contentData = window.DeutschraumData;
+  const standardTopics = contentData.levels;
+  const defaultSpecialTopics = contentData.career.specialTopics;
+  const everydaySituations = contentData.career.everydaySituations;
+  const lexicalInfo = contentData.vocabulary.lexicalInfo;
+  const translations = contentData.vocabulary.translations;
+  const languageOptions = contentData.vocabulary.languageOptions;
+  const grammarLexicon = contentData.vocabulary.grammarLexicon;
+  const multilingual = contentData.vocabulary.multilingual;
+  const defaultVocabCategories = contentData.vocabulary.defaultCategories;
+  const vocabularyForms = contentData.vocabulary.forms;
 
   window.open = function (content) {
     originalOpen(content);
@@ -324,10 +336,6 @@
     save(); button.textContent = '✓ Erledigt'; button.disabled = true;
   };
 
-  const lexicalInfo = {
-    gehen:{kind:'Verb',forms:'gehen, ging, ist gegangen'},kommen:{kind:'Verb',forms:'kommen, kam, ist gekommen'},lernen:{kind:'Verb',forms:'lernen, lernte, hat gelernt'},wohnen:{kind:'Verb',forms:'wohnen, wohnte, hat gewohnt'},sprechen:{kind:'Verb',forms:'sprechen, sprach, hat gesprochen'},
-    Tisch:{kind:'Nomen',forms:'der Tisch, die Tische'},Haus:{kind:'Nomen',forms:'das Haus, die Häuser'},Wohnung:{kind:'Nomen',forms:'die Wohnung, die Wohnungen'},Bahnhof:{kind:'Nomen',forms:'der Bahnhof, die Bahnhöfe'},Schule:{kind:'Nomen',forms:'die Schule, die Schulen'}
-  };
   window.openWordMenu = function (rawWord) {
     const clean = String(rawWord || '').replace(/[^A-Za-zÄÖÜäöüß-]/g,'');
     const lookup = lexicalInfo[clean] || lexicalInfo[clean.toLowerCase()];
@@ -379,34 +387,6 @@
     const message = get('msg');
     if (message) { message.textContent = '✓ Aufgabe für ' + level + ' veröffentlicht.'; message.classList.remove('hidden'); }
     if (['A1','A2','B1','B2','C1','C2'].includes(level)) { s.page='levels'; s.level=level; window.view(); }
-  };
-
-  const standardTopics = {
-    A1: [
-      { name:'Sich vorstellen', vocab:['heißen','wohnen','kommen'], grammar:'Personalpronomen und Verbkonjugation' },
-      { name:'Im Alltag', vocab:['Kaffee','Uhrzeit','Einkaufen'], grammar:'Artikel: der, die, das' },
-      { name:'Unterwegs', vocab:['Bahnhof','links','geradeaus'], grammar:'Fragen mit wo und wohin' }
-    ],
-    A2: [
-      { name:'Wohnen und Nachbarschaft', vocab:['Miete','Wohnung','Nachbar'], grammar:'Wechselpräpositionen' },
-      { name:'Gesundheit', vocab:['Arzt','Termin','Schmerzen'], grammar:'Modalverben und Imperativ' }
-    ],
-    B1: [
-      { name:'Arbeit und Beruf', vocab:['Bewerbung','Erfahrung','Team'], grammar:'Nebensätze mit dass und weil' },
-      { name:'Medien und Meinung', vocab:['Nachricht','Meinung','Quelle'], grammar:'Indirekte Fragen' }
-    ],
-    B2: [
-      { name:'Diskussion und Argumentation', vocab:['Standpunkt','Folge','Lösung'], grammar:'Konjunktiv II und Satzverbindungen' },
-      { name:'Gesellschaft und Kultur', vocab:['Wandel','Vielfalt','Teilnahme'], grammar:'Partizipialattribute' }
-    ],
-    C1: [
-      { name:'Sprache und Wirkung', vocab:['Nuance','Stilmittel','Register'], grammar:'Nominalstil, Kohäsion und komplexe Satzgefüge' },
-      { name:'Wissenschaft und Diskurs', vocab:['These','Befund','Einwand'], grammar:'Indirekte Rede und differenzierte Modalität' }
-    ],
-    C2: [
-      { name:'Rhetorik und Präzision', vocab:['Implikation','Prämisse','Ambiguität'], grammar:'Stilistische Verdichtung und Informationsstruktur' },
-      { name:'Literatur und Interpretation', vocab:['Erzählperspektive','Motiv','Deutung'], grammar:'Komplexe Attribute und elliptische Strukturen' }
-    ]
   };
 
   window.levels = function () {
@@ -463,7 +443,6 @@
     window.open('<div class="dialog" data-task-date="' + Number(item.date) + '"><div class="dialog-top"><div><p class="eyebrow">' + esc(item.section) + ' · ' + esc(item.type) + '</p><h2>' + esc(item.topic) + '</h2></div><button class="icon">✕</button></div>' + mediaHtml(item) + body + '<div class="task-completion"><button class="secondary" ' + (isDone ? 'disabled' : '') + ' onclick="markTaskDone(' + Number(item.date) + ',this)">' + (isDone ? '✓ Erledigt' : 'Als erledigt markieren') + '</button></div></div>');
   };
 
-  const translations = {Kaffee:'кофе',Sprache:'язык',sprechen:'говорить',Tisch:'стол',Haus:'дом',Wohnung:'квартира',Bahnhof:'вокзал',Schule:'школа',gehen:'идти',kommen:'приходить',lernen:'учить',wohnen:'жить',Termin:'встреча / запись',Arbeit:'работа',Beruf:'профессия'};
   function translationFor(wordValue) { const clean=String(wordValue||'').replace(/^(der|die|das)\s+/i,'').trim(); return translations[clean] || translations[clean.toLowerCase()] || 'Übersetzung noch nicht hinterlegt'; }
   window.translateWord = function () { const input=document.getElementById('dictionarySearch'); const box=document.getElementById('translationResult'); if (!input||!box) return; const value=input.value.trim(); box.innerHTML=value ? '<strong>'+esc(value)+'</strong> → '+esc(translationFor(value))+' <button class="secondary" onclick="saveClickedWord(\''+esc(value).replace(/&#39;/g,"\\'")+'\')">Speichern</button>' : 'Bitte ein Wort eingeben.'; };
   window.dict = function () {
@@ -476,7 +455,6 @@
   function showFlashcard(words) { const value=words[flashcardIndex%words.length]; window.open('<div class="dialog"><div class="dialog-top"><h2>Karteikarte '+(flashcardIndex+1)+' / '+words.length+'</h2><button class="icon">✕</button></div><button class="flashcard" onclick="this.classList.toggle(\'flipped\')"><span class="flash-front">'+esc(value)+'<small>Antippen zum Umdrehen</small></span><span class="flash-back">'+esc(translationFor(value))+'<small>🔊 Aussprache</small></span></button><div class="flash-actions"><button class="secondary" onclick="say(\''+esc(value).replace(/&#39;/g,"\\'")+'\')">🔊</button><button class="primary" onclick="nextFlashcard()">Nächste</button></div></div>'); }
   window.nextFlashcard=function(){const words=window.prof?.()?.words||[];flashcardIndex=(flashcardIndex+1)%words.length;showFlashcard(words);};
 
-  const defaultSpecialTopics = ['Medizin & Pflege','Kita & Erzieher','Ämter & Behörden','Logistik & Transport','Handwerk','Gastronomie & Hotel','IT & Büro','Einzelhandel','Beauty & Wellness'].map(name=>({name,subs:[{title:'Praxisstart',category:'Praxisdialoge',content:'Guten Tag, wie kann ich Ihnen helfen?',audio_url:'',video_url:''}]}));
   window.career = function () {
     db.specialTopics=Array.isArray(db.specialTopics)?db.specialTopics:[]; const custom=db.specialTopics; const all=[...defaultSpecialTopics,...custom];
     const add=adminOK()?'<button class="primary special-add" onclick="openSpecialAdmin()">＋ Haupt- oder Unterthema</button>':'';
@@ -511,32 +489,7 @@
   window.demoPay=function(method,button){document.querySelectorAll('.checkout-method').forEach(item=>item.disabled=true);button.classList.add('payment-success');const result=document.getElementById('demoPaymentResult');result.className='notice payment-success-message';result.innerHTML='✓ <strong>Test-Zahlung erfolgreich</strong><br>'+esc(method)+' wurde ausschließlich simuliert. Es fand keine Geldtransaktion statt.';};
 
   /* Kumulative Erweiterung: Wortanalyse, Muttersprache, Lehrer-Dashboard und Niveau-Blöcke */
-  const languageOptions=['Ukrainisch / Українська','Russisch / Русский','Englisch / English','Türkisch / Türkçe','Arabisch / العربية','Polnisch / Polski','Rumänisch / Română','Spanisch / Español','Französisch / Français','Italienisch / Italiano','Portugiesisch / Português','Persisch / فارسی','Kurdisch / Kurdî','Paschtu / پښتو','Dari / دری','Tigrinya / ትግርኛ','Bulgarisch / Български','Ungarisch / Magyar','Griechisch / Ελληνικά','Albanisch / Shqip','Serbokroatisch / Bosanski / Hrvatski / Srpski','Tschechisch / Čeština','Slowakisch / Slovenčina','Chinesisch / 中文','Vietnamesisch / Tiếng Việt','Hindi / हिन्दी','Urdu / اردو','Bengalisch / বাংলা','Japanisch / 日本語','Koreanisch / 한국어'];
-  const grammarLexicon={
-    können:{kind:'Verb',base:'können',forms:'können | kann, konnte, hat gekonnt',aliases:['kann','kannst','könnt','konnte','konnten','gekonnt']},
-    sein:{kind:'Verb',base:'sein',forms:'sein | ist, war, ist gewesen',aliases:['bin','bist','ist','sind','seid','war','waren','gewesen']},
-    haben:{kind:'Verb',base:'haben',forms:'haben | hat, hatte, hat gehabt',aliases:['habe','hast','hat','haben','hatte','gehabt']},
-    gehen:{kind:'Verb',base:'gehen',forms:'gehen | geht, ging, ist gegangen',aliases:['gehe','gehst','geht','ging','gingen','gegangen']},
-    kommen:{kind:'Verb',base:'kommen',forms:'kommen | kommt, kam, ist gekommen',aliases:['komme','kommst','kommt','kam','kamen','gekommen']},
-    sprechen:{kind:'Verb',base:'sprechen',forms:'sprechen | spricht, sprach, hat gesprochen',aliases:['spreche','sprichst','spricht','sprach','gesprochen']},
-    lernen:{kind:'Verb',base:'lernen',forms:'lernen | lernt, lernte, hat gelernt',aliases:['lerne','lernst','lernt','lernte','gelernt']},
-    Tisch:{kind:'Nomen',base:'Tisch',forms:'der Tisch, die Tische',aliases:['Tisch','Tische','Tischen']},
-    Haus:{kind:'Nomen',base:'Haus',forms:'das Haus, die Häuser',aliases:['Haus','Hauses','Häuser','Häusern']},
-    Schule:{kind:'Nomen',base:'Schule',forms:'die Schule, die Schulen',aliases:['Schule','Schulen']},
-    machen:{kind:'Verb',base:'machen',forms:'machen | macht, machte, hat gemacht',aliases:['mache','machst','macht','machte','gemacht']},
-    gut:{kind:'Adjektiv',base:'gut',forms:'gut | besser, am besten',aliases:['gut','gute','guter','gutes','guten','besser','beste','besten']},
-    groß:{kind:'Adjektiv',base:'groß',forms:'groß | größer, am größten',aliases:['groß','große','großer','großes','großen','größer','größte','größten']},
-    schnell:{kind:'Adjektiv',base:'schnell',forms:'schnell | schneller, am schnellsten',aliases:['schnell','schnelle','schneller','schnelles','schnellen','schnellste','schnellsten']}
-  };
   function analyzeGrammarWord(raw){const clean=String(raw||'').replace(/[^A-Za-zÄÖÜäöüß-]/g,'');for(const entry of Object.values(grammarLexicon)){if(entry.base.toLowerCase()===clean.toLowerCase()||entry.aliases.some(alias=>alias.toLowerCase()===clean.toLowerCase()))return {...entry,clicked:clean}}const noun=/^[A-ZÄÖÜ]/.test(clean);if(noun)return{kind:'Nomen',base:clean,clicked:clean,forms:'Artikel und Plural werden beim nächsten Wörterbuchabgleich ergänzt.'};if(/(en|ern|eln)$/.test(clean))return{kind:'Verb',base:clean,clicked:clean,forms:clean+' | Präsens, Präteritum und Perfekt werden ergänzt.'};return{kind:'Wort / Adjektiv',base:clean.toLowerCase(),clicked:clean,forms:'Grundform: '+clean.toLowerCase()};}
-  const multilingual={
-    Ukrainisch:{können:'могти',gehen:'йти',kommen:'приходити',sprechen:'говорити',lernen:'вчити',Tisch:'стіл',Haus:'будинок',Schule:'школа',gut:'добрий',groß:'великий'},
-    Russisch:{können:'мочь',gehen:'идти',kommen:'приходить',sprechen:'говорить',lernen:'учить',Tisch:'стол',Haus:'дом',Schule:'школа',gut:'хороший',groß:'большой'},
-    Englisch:{können:'can / to be able to',gehen:'to go',kommen:'to come',sprechen:'to speak',lernen:'to learn',Tisch:'table',Haus:'house',Schule:'school',gut:'good',groß:'big'},
-    Türkisch:{können:'-ebilmek',gehen:'gitmek',kommen:'gelmek',sprechen:'konuşmak',lernen:'öğrenmek',Tisch:'masa',Haus:'ev',Schule:'okul'},
-    Arabisch:{können:'يستطيع',gehen:'يذهب',kommen:'يأتي',sprechen:'يتكلم',lernen:'يتعلم',Tisch:'طاولة',Haus:'بيت',Schule:'مدرسة'},
-    Polnisch:{können:'móc',gehen:'iść',kommen:'przychodzić',sprechen:'mówić',lernen:'uczyć się',Tisch:'stół',Haus:'dom',Schule:'szkoła'}
-  };
   function nativeLanguage(){return window.prof?.()?.nativeLanguage||'Russisch'}
   function dynamicTranslation(wordValue){const analysis=analyzeGrammarWord(wordValue);const table=multilingual[nativeLanguage()]||multilingual.Englisch;return table[analysis.base]||'Übersetzung selbst ergänzen';}
   window.openWordMenu=function(rawWord){const info=analyzeGrammarWord(rawWord);window.open('<div class="dialog word-modal"><div class="dialog-top"><div><p class="eyebrow">PERSÖNLICHER WORTSCHATZ</p><h2>'+esc(info.clicked)+'</h2></div><button class="icon">✕</button></div>'+(info.clicked.toLowerCase()!==info.base.toLowerCase()?'<p class="base-detected">Erkannte Grundform: <strong>'+esc(info.base)+'</strong></p>':'')+'<p class="word-type">'+esc(info.kind)+'</p><div class="grammar-forms"><strong>Grammatische Formen</strong><p>'+esc(info.forms)+'</p></div><p class="translation"><strong>Deutsch → '+esc(nativeLanguage())+':</strong> '+esc(dynamicTranslation(info.base))+'</p><div class="word-actions"><button class="secondary" onclick="say(\''+esc(info.base).replace(/&#39;/g,"\\'")+'\')">🔊 Aussprache</button><button class="primary" onclick="saveAnalyzedWord(\''+esc(info.base).replace(/&#39;/g,"\\'")+'\')">＋ Im Vokabelheft speichern</button></div><p id="wordSaveMessage" class="task-feedback"></p></div>');};
@@ -613,7 +566,6 @@
     'Sprechen':'Sprechtext eingeben; optional eine MP3-Musterlösung hinterlegen.'
   };
   window.updateStructuredPreview=function(){const type=document.getElementById('structuredType')?.value,contentField=document.getElementById('structuredContent'),preview=document.getElementById('structuredPreview'),hint=document.getElementById('structuredHint');if(!type||!preview)return;const sample=structuredPreviewSamples[type]||'Beispielinhalt für die Aufgabe.';if(contentField&&!contentField.value&&document.activeElement!==contentField)contentField.placeholder=sample;if(hint)hint.textContent=structuredHints[type]||'Die Vorschau verwendet dieselbe interaktive Ansicht wie die Schüleraufgabe.';const content=contentField?.value.trim()||sample,audio=document.getElementById('structuredAudio')?.value||'';preview.innerHTML=type==='Schreiben'?renderWritingTask({date:0,content,data:{writingContext:content,writingPoints:'Inhaltspunkt 1\nInhaltspunkt 2',writingModel:'Dies ist eine mögliche Musterlösung.'}}):renderTask(type,content,audio);};
-  const defaultVocabCategories=['Allgemein','Familie & Beziehungen','Beruf & Arbeit','Essen & Trinken','Gesundheit','Wohnen'];
   function ensureVocabularyState(){db.vocabCategories=Array.isArray(db.vocabCategories)&&db.vocabCategories.length?db.vocabCategories:defaultVocabCategories.slice();db.teacherVocab=Array.isArray(db.teacherVocab)?db.teacherVocab:[];Object.values(db.users||{}).forEach(profile=>{profile.words=Array.isArray(profile.words)?profile.words:[]});}
   function wordRecord(value,index=0){if(value&&typeof value==='object'){const source=value.word||value.base||'';const info=analyzeGrammarWord(source);return{id:value.id||('personal-'+index+'-'+String(source).toLowerCase()),word:source,base:value.base||info.base,kind:value.kind||info.kind,forms:value.forms!==undefined?value.forms:info.forms,translation:value.translation||dynamicTranslation(info.base),category:value.category||'Allgemein',createdAt:value.createdAt||Date.now()}}const info=analyzeGrammarWord(value);return{id:'personal-'+index+'-'+String(value).toLowerCase(),word:String(value),base:info.base,kind:info.kind,forms:info.forms,translation:dynamicTranslation(info.base),category:'Allgemein',createdAt:Date.now()}}
   function categoryOptions(selected,allowNew=true){ensureVocabularyState();return db.vocabCategories.map(category=>'<option '+(category===selected?'selected':'')+'>'+esc(category)+'</option>').join('')+(allowNew?'<option value="__new">＋ Neue Kategorie erstellen</option>':'')}
@@ -827,12 +779,6 @@
   const retainedTrackedChat=window.answerChat;window.answerChat=function(button,correct){if(!correct)recordLearningError(button,button.textContent.trim(),'Passende Dialogantwort');return retainedTrackedChat(button,correct)};
   const retainedTrackedOdd=window.answerOddOne;window.answerOddOne=function(button,correct){if(!correct)recordLearningError(button,button.textContent.trim(),'Unpassendes Wort');return retainedTrackedOdd(button,correct)};
   /* Alltagssituationen innerhalb von Beruf & Spezial. */
-  const everydaySituations=[
-    {id:'supermarkt',icon:'🛒',title:'Im Supermarkt',intro:'An der Kasse bezahlen und höflich nach dem Preis fragen.',dialog:'Guten Tag! Brauchen Sie eine Tüte? => Ja, bitte.* | Ich habe keinen Termin.\nDas kostet 12,40 Euro. => Kann ich mit Karte bezahlen?* | Mein Kind schaukelt.',vocab:['die Kasse','der Preis','die Tüte','mit Karte bezahlen'],statement:'An der Kasse kann man nach Kartenzahlung fragen. | true'},
-    {id:'spielplatz',icon:'🛝',title:'Auf dem Spielplatz',intro:'Mit anderen Eltern ins Gespräch kommen und über Kinder sprechen.',dialog:'Hallo! Wie alt ist Ihr Kind? => Es ist vier Jahre alt.* | Zwei Kilo, bitte.\nSpielt ihr oft hier? => Ja, fast jeden Nachmittag.* | Ich brauche ein Rezept.',vocab:['der Spielplatz','die Schaukel','aufpassen','zusammen spielen'],statement:'Eltern können auf dem Spielplatz miteinander sprechen. | true'},
-    {id:'arzt',icon:'🩺',title:'Beim Arzt',intro:'Beschwerden beschreiben, Fragen verstehen und einen Termin vereinbaren.',dialog:'Was fehlt Ihnen? => Ich habe seit gestern Halsschmerzen.* | Das macht zehn Euro.\nNehmen Sie Medikamente? => Nein, im Moment nicht.* | Mein Kind schaukelt.',vocab:['der Termin','die Beschwerden','Halsschmerzen','das Rezept'],statement:'Beim Arzt beschreibt man seine Beschwerden. | true'},
-    {id:'kita',icon:'🧸',title:'In der Kita',intro:'Mit Erzieherinnen über den Tagesablauf und das Kind sprechen.',dialog:'Wie war der Tag heute? => Sehr gut, sie hat viel gespielt.* | Ich zahle bar.\nBitte bringen Sie morgen Wechselkleidung mit. => Ja, mache ich.* | Wo ist die Kasse?',vocab:['die Erzieherin','die Abholzeit','Wechselkleidung','Bescheid geben'],statement:'In der Kita spricht man häufig über den Tagesablauf. | true'}
-  ];
   const retainedEverydayCareer=window.career;
   window.career=function(){const base=retainedEverydayCareer();return base+'<section class="everyday-section"><div class="head"><div><p class="eyebrow">BERUF & ALLTAG</p><h2>Alltagssituationen</h2><p class="muted">Reale Dialoge, passender Wortschatz und interaktive Übungen.</p></div></div><div class="grid cards everyday-grid">'+everydaySituations.map(item=>'<article class="card everyday-card"><span class="everyday-icon">'+item.icon+'</span><h3>'+esc(item.title)+'</h3><p class="muted">'+esc(item.intro)+'</p><button class="primary" onclick="openEverydaySituation(\''+item.id+'\')">Situation üben</button></article>').join('')+'</div></section>'};
   window.openEverydaySituation=function(id){const item=everydaySituations.find(entry=>entry.id===id);if(!item)return;window.open('<div class="dialog everyday-dialog"><div class="dialog-top"><div><p class="eyebrow">ALLTAGSSITUATION</p><h2>'+item.icon+' '+esc(item.title)+'</h2></div><button class="icon">✕</button></div><section class="everyday-intro"><h3>Einführung</h3><p class="clickable-copy">'+wordify(item.intro)+'</p></section><section><h3>Realistischer Dialog</h3>'+renderChatSimulator(item.dialog)+'</section><section><h3>Wortschatz</h3><div class="everyday-vocab">'+item.vocab.map(word=>'<button class="word-tile" onclick="openWordMenu(\''+esc(word).replace(/&#39;/g,"\\'")+'\')">'+esc(word)+' <span>＋</span></button>').join('')+'</div></section><section><h3>Interaktive Übung</h3>'+renderTrueFalseTask(item.statement)+'</section></div>')};
@@ -898,16 +844,6 @@
   };
   window.deletePersonalWordById=function(id){if(!confirm('Möchtest du diese Vokabel wirklich löschen?'))return;const profile=window.prof?.();if(!profile)return;profile.words=(profile.words||[]).filter((entry,index)=>simpleVocabularyRecord(entry,index).id!==id);save();view()};
   /* Sichere automatische Formen aus einem integrierten deutschen Lernlexikon. */
-  const vocabularyForms={
-    name:{kind:'Nomen',base:'Name',display:'der Name, die Namen',aliases:['name','namen']},
-    tisch:{kind:'Nomen',base:'Tisch',display:'der Tisch, die Tische',aliases:['tisch','tische']},haus:{kind:'Nomen',base:'Haus',display:'das Haus, die Häuser',aliases:['haus','häuser']},schule:{kind:'Nomen',base:'Schule',display:'die Schule, die Schulen',aliases:['schule','schulen']},
-    preis:{kind:'Nomen',base:'Preis',display:'der Preis, die Preise',aliases:['preis','preise']},kasse:{kind:'Nomen',base:'Kasse',display:'die Kasse, die Kassen',aliases:['kasse','kassen']},tüte:{kind:'Nomen',base:'Tüte',display:'die Tüte, die Tüten',aliases:['tüte','tüten']},
-    termin:{kind:'Nomen',base:'Termin',display:'der Termin, die Termine',aliases:['termin','termine']},arzt:{kind:'Nomen',base:'Arzt',display:'der Arzt, die Ärzte',aliases:['arzt','ärzte']},kind:{kind:'Nomen',base:'Kind',display:'das Kind, die Kinder',aliases:['kind','kinder']},
-    gehen:{kind:'Verb',base:'gehen',display:'gehen | geht, ging, ist gegangen',aliases:['gehen','gehe','gehst','geht','ging','gegangen']},kommen:{kind:'Verb',base:'kommen',display:'kommen | kommt, kam, ist gekommen',aliases:['kommen','komme','kommt','kam','gekommen']},
-    sein:{kind:'Verb',base:'sein',display:'sein | ist, war, ist gewesen',aliases:['sein','bin','bist','ist','sind','war','gewesen']},haben:{kind:'Verb',base:'haben',display:'haben | hat, hatte, hat gehabt',aliases:['haben','habe','hast','hat','hatte','gehabt']},
-    sprechen:{kind:'Verb',base:'sprechen',display:'sprechen | spricht, sprach, hat gesprochen',aliases:['sprechen','spreche','spricht','sprach','gesprochen']},lernen:{kind:'Verb',base:'lernen',display:'lernen | lernt, lernte, hat gelernt',aliases:['lernen','lerne','lernt','lernte','gelernt']},machen:{kind:'Verb',base:'machen',display:'machen | macht, machte, hat gemacht',aliases:['machen','mache','macht','machte','gemacht']},
-    groß:{kind:'Adjektiv',base:'groß',display:'groß | größer, am größten',aliases:['groß','größer','größten']},gut:{kind:'Adjektiv',base:'gut',display:'gut | besser, am besten',aliases:['gut','besser','besten']},schnell:{kind:'Adjektiv',base:'schnell',display:'schnell | schneller, am schnellsten',aliases:['schnell','schneller','schnellsten']}
-  };
   function enrichVocabularyWord(raw){const source=String(raw||'').trim().replace(/\s+/g,' ');if(!source)return{source:'',base:'',display:'',kind:'Grundform',enriched:false};if(/[|,]/.test(source))return{source,base:source.split(/[|,]/)[0].replace(/^(der|die|das)\s+/i,'').trim(),display:source,kind:'Vollständige Form',enriched:true};const key=source.replace(/[.!?;:()]/g,'').toLocaleLowerCase('de-DE');const found=Object.values(vocabularyForms).find(entry=>entry.aliases.includes(key));if(found)return{source,base:found.base,display:found.display,kind:found.kind,enriched:true};return{source,base:source,display:source,kind:'Grundform',enriched:false}}
   function enrichedRecord(value,index=0){const original=simpleVocabularyRecord(value,index),stored=value&&typeof value==='object'?value:{},info=enrichVocabularyWord(stored.source||original.german);return{...original,source:stored.source||info.source,base:stored.base||info.base,german:stored.german&&stored.enriched!==undefined?stored.german:info.display,kind:stored.kind||info.kind,enriched:stored.enriched!==undefined?stored.enriched:info.enriched}}
   window.previewVocabularyEnrichment=function(input,targetId){const target=document.getElementById(targetId),info=enrichVocabularyWord(input.value);if(!target)return;target.innerHTML=info.source?'<span>'+(info.enriched?'Automatisch ergänzt:':'Grundform:')+'</span><strong>'+esc(info.display)+'</strong>':''};
@@ -924,5 +860,4 @@
     const cards=records.map(entry=>'<article class="card dictionary-card personal-vocab-card"><div><p class="eyebrow">'+esc(entry.kind)+'</p><h3>'+esc(entry.german)+'</h3>'+(!entry.enriched?'<small class="form-note">Keine sichere Zusatzform im lokalen Lexikon – Grundform beibehalten.</small>':'')+'<p class="translation">'+esc(entry.translation||'Übersetzung noch nicht eingetragen')+'</p></div><div class="simple-vocab-card-actions"><button class="speaker" onclick="say(\''+esc(entry.base||entry.german).replace(/&#39;/g,"\\'")+'\')">🔊 Aussprache</button><button class="danger-button" onclick="deletePersonalWordById(\''+entry.id+'\')">🗑️ Löschen</button></div></article>').join('');return'<div class="head"><div><p class="eyebrow">WORTSCHATZ</p><h2>Mein persönlicher Wortschatz</h2><p class="muted">Ein Wort eingeben – sichere Artikel, Plural- oder Verbformen werden automatisch ergänzt.</p></div><button class="secondary" onclick="cards()">🃏 Karteikarten</button></div>'+tabs+'<form class="card personal-vocab-form" onsubmit="event.preventDefault();saveSimpleVocabulary()"><label>Deutsches Wort<input id="simpleGermanWord" placeholder="z. B. Name oder gehen" oninput="previewVocabularyEnrichment(this,\'personalEnrichmentPreview\')" required></label><div id="personalEnrichmentPreview" class="enrichment-preview" aria-live="polite"></div><label>Eigene Übersetzung<input id="simpleTranslation" placeholder="z. B. auf Russisch" required></label><div class="simple-vocab-actions"><button type="button" class="secondary" onclick="pronounceVocabularyInput()">🔊 Aussprache</button><button class="primary">+ Speichern</button></div></form><div class="grid cards personal-vocab-grid">'+(cards||'<article class="card wide"><h3>Noch keine persönlichen Vokabeln gespeichert.</h3></article>')+'</div>';
   };
   ensureContentIds();
-  view();
 })();
