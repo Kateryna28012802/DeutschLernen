@@ -4,6 +4,7 @@ function lesson(topic){if(db.settings.money&&(s.level==='B1'||s.level==='B2'))re
 /* Exercise renderer and interaction engine extracted from the legacy closure. */
 (function (runtime, contentData) {
   const esc = runtime.utils.escape;
+  const safeResourceUrl = runtime.utils.safeResourceUrl;
   const lexicalInfo = contentData.vocabulary.lexicalInfo;
   function exampleBox(type) {
     const gap = type === 'Lückentext';
@@ -59,14 +60,16 @@ function lesson(topic){if(db.settings.money&&(s.level==='B1'||s.level==='B2'))re
   }
 
   function mediaHtml(item) {
-    const audio = item?.audio_url || '';
-    const video = item?.video_url || '';
+    const image = safeResourceUrl(item?.image_url);
+    const audio = safeResourceUrl(item?.audio_url);
+    const videoInput = String(item?.video_url || '').trim();
+    const video = /^[\w-]{11}$/.test(videoInput) ? videoInput : safeResourceUrl(videoInput);
     let html = '';
-    if (item?.image_url) html += '<div class="lesson-media"><p class="eyebrow">BILD</p><img src="' + esc(item.image_url) + '" alt="Illustration zur Aufgabe" loading="lazy"></div>';
+    if (image) html += '<div class="lesson-media"><p class="eyebrow">BILD</p><img src="' + esc(image) + '" alt="Illustration zur Aufgabe" loading="lazy"></div>';
     if (audio) html += '<div class="lesson-media"><p class="eyebrow">AUDIO</p><audio controls preload="metadata" src="' + esc(audio) + '">Audio nicht verfügbar.</audio></div>';
     if (video) {
-      const yt = video.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([\w-]+)/) || (/^[\w-]{11}$/.test(video) ? [video,video] : null);
-      const vm = video.match(/vimeo\.com\/(\d+)/);
+      const yt = video.match(/^(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([\w-]{11})(?:[?&#/].*)?$/i) || (/^[\w-]{11}$/.test(video) ? [video,video] : null);
+      const vm = video.match(/^(?:https?:\/\/)?(?:www\.)?vimeo\.com\/(\d+)(?:[?&#/].*)?$/i);
       if (yt) html += '<div class="lesson-media"><p class="eyebrow">VIDEO</p><iframe src="https://www.youtube-nocookie.com/embed/' + esc(yt[1]) + '" title="Lektionsvideo" loading="lazy" allowfullscreen></iframe></div>';
       else if (vm) html += '<div class="lesson-media"><p class="eyebrow">VIDEO</p><iframe src="https://player.vimeo.com/video/' + esc(vm[1]) + '" title="Lektionsvideo" loading="lazy" allowfullscreen></iframe></div>';
       else html += '<div class="lesson-media"><p class="eyebrow">VIDEO</p><video controls preload="metadata" src="' + esc(video) + '">Video nicht verfügbar.</video></div>';
@@ -75,7 +78,8 @@ function lesson(topic){if(db.settings.money&&(s.level==='B1'||s.level==='B2'))re
   }
 
   function renderSpeakingTask(content, audioUrl) {
-    const sample = audioUrl ? '<audio controls preload="metadata" src="' + esc(audioUrl) + '">Audio nicht verfügbar.</audio>' : '<button type="button" class="secondary" onclick="say(\'' + esc(content).replace(/&#39;/g,"\\'") + '\')">🔊 Musterlösung anhören</button>';
+    const safeAudio = safeResourceUrl(audioUrl);
+    const sample = safeAudio ? '<audio controls preload="metadata" src="' + esc(safeAudio) + '">Audio nicht verfügbar.</audio>' : '<button type="button" class="secondary" onclick="say(\'' + esc(content).replace(/&#39;/g,"\\'") + '\')">🔊 Musterlösung anhören</button>';
     return exampleBox('Sprechen') + '<section class="speaking-task"><div class="speaking-prompt"><p class="eyebrow">SPRICH DEN TEXT</p><p class="clickable-copy">' + wordify(content || 'Guten Tag, ich möchte einen Termin vereinbaren.') + '</p></div><div class="sample-audio"><strong>Audio-Musterlösung</strong>' + sample + '</div><div class="recorder-panel"><button type="button" class="record-button" onclick="toggleRecording(this)" aria-pressed="false"><span class="record-dot"></span><span>Aufnahme starten</span></button><span class="record-status" aria-live="polite">Bereit</span><audio class="recorded-audio hidden" controls></audio></div><p class="muted">Nimm deine Stimme auf und vergleiche sie direkt mit der Musterlösung. Die Aufnahme bleibt nur in diesem Browser-Tab.</p></section>';
   }
 
@@ -111,7 +115,8 @@ function lesson(topic){if(db.settings.money&&(s.level==='B1'||s.level==='B2'))re
       return example + '<p class="task-text">Im Café <select class="context-select" onchange="contextCheck(this,\'möchte\')"><option value="">Wähle …</option><option>möchte</option><option>möchten</option><option>möchtet</option></select> ich einen Kaffee.</p>';
     }
     if (type === 'Hörverstehen') {
-      return example + '<audio controls class="task-audio" src="' + esc(audioUrl) + '"></audio><button class="speaker" onclick="say(\'Guten Tag, wo ist der Bahnhof?\')">🔊 Hörtext anhören</button><p>' + safe + '</p>';
+      const safeAudio = safeResourceUrl(audioUrl);
+      return example + (safeAudio?'<audio controls class="task-audio" src="' + esc(safeAudio) + '"></audio>':'') + '<button class="speaker" onclick="say(\'Guten Tag, wo ist der Bahnhof?\')">🔊 Hörtext anhören</button><p>' + safe + '</p>';
     }
     if (type === 'Interaktiver Dialog') {
       return example + '<div class="dialog-line">👩 Guten Tag, was möchten Sie? <button class="speaker" onclick="say(\'Guten Tag, was möchten Sie?\')">🔊</button></div><div class="dialog-line">👤 Ich möchte <select onchange="contextCheck(this,\'einen Kaffee\')"><option>…</option><option>einen Kaffee</option><option>eine Kaffee</option></select>, bitte. <button class="speaker" onclick="say(\'Ich möchte einen Kaffee, bitte.\')">🔊</button></div>';

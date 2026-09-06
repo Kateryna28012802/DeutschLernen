@@ -23,7 +23,7 @@ function adminOK(){return user&&user.email.toLowerCase()===ADMIN}
 function prof(){if(!user)return null;return db.users[user.email]||(db.users[user.email]={done:[],right:0,answers:0,words:[],last:{page:'levels',level:'A1'}})}
 function go(p){s.page=p;view()}
 function n(i){return '<button class="'+(s.page===i[0]?'active':'')+'" onclick="go(\''+i[0]+'\')">'+i[1]+' '+i[2]+'</button>'}
-function shell(){document.getElementById('sideNav').innerHTML=nav.map(n).join('');document.getElementById('mobileNav').innerHTML=nav.map(n).join('');document.getElementById('adminOpen').classList.toggle('is-admin',adminOK());document.getElementById('auth').innerHTML=!user?'<button class="secondary" onclick="login(\'login\')">Anmelden</button><button class="primary" onclick="login(\'register\')">Registrieren</button>':'<button class="icon" onclick="document.getElementById(\'menu\').classList.toggle(\'hidden\')">'+user.email[0].toUpperCase()+'</button><div id="menu" class="profile hidden"><p class="muted">'+user.email+'</p><button onclick="profile()">Mein Profil</button><button onclick="logout()">Abmelden</button></div>'}
+function shell(){document.getElementById('sideNav').innerHTML=nav.map(n).join('');document.getElementById('mobileNav').innerHTML=nav.map(n).join('');document.getElementById('adminOpen').classList.toggle('is-admin',adminOK());const email=esc(user?.email||'');document.getElementById('auth').innerHTML=!user?'<button class="secondary" onclick="login(\'login\')">Anmelden</button><button class="primary" onclick="login(\'register\')">Registrieren</button>':'<button class="icon" onclick="document.getElementById(\'menu\').classList.toggle(\'hidden\')">'+email.charAt(0).toUpperCase()+'</button><div id="menu" class="profile hidden"><p class="muted">'+email+'</p><button onclick="profile()">Mein Profil</button><button onclick="logout()">Abmelden</button></div>'}
 function view(){if(user){prof().last={page:s.page,level:s.level};save()}shell();document.getElementById('headerTitle').textContent=s.page==='levels'?'Deutsche Sprachniveaus':s.page==='dict'?'Wortschatz & Mein Wörterbuch':'Beruf & Spezial';document.getElementById('appView').innerHTML=s.page==='levels'?levels():s.page==='dict'?dict():career()}
 function career(){let a=['Medizin & Pflege','Kita & Erzieher','Ämter & Behörden','Logistik & Transport','Handwerk','Gastronomie & Hotel','IT & Büro','Einzelhandel','Beauty & Wellness'];return '<div class="hero"><p class="eyebrow">BERUFSDEUTSCH</p><h1>Kompetent sprechen. Sicher auftreten.</h1><p>Praxisdialoge und Fachwortschatz für deinen Beruf.</p></div>'+(db.settings.money?gate():'')+'<div class="grid cards">'+a.map(x=>'<article class="card"><h3>💼 '+x+'</h3><p class="muted">Fachwortschatz und Praxisdialoge.</p><button class="primary" onclick="course(\''+x+'\')">Module öffnen</button></article>').join('')+'</div>'}
 function course(x){if(db.settings.money)return premium();db.analytics.views[x]=(db.analytics.views[x]||0)+1;save();open('<div class="dialog"><div class="dialog-top"><h2>'+x+'</h2><button class="icon" onclick="close()">✕</button></div><p>Guten Tag, wie kann ich Ihnen helfen? <button class="speaker" onclick="say(\'Guten Tag, wie kann ich Ihnen helfen?\')">🔊</button></p></div>')}
@@ -33,6 +33,9 @@ function say(x){speechSynthesis.cancel();let u=new SpeechSynthesisUtterance(x);u
 function open(x){const modalEl=document.getElementById('modal');modalEl.innerHTML=x;modalEl.classList.add('show');configureAdminSection();const closeButton=modalEl.querySelector('.dialog-top .icon');if(closeButton){closeButton.classList.add('modal-close');closeButton.addEventListener('click',close)}}
 function close(){const modalEl=document.getElementById('modal');modalEl.classList.remove('show');modalEl.innerHTML=''}
 function esc(x){return String(x||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+/* UI validation only: the future backend must independently validate every URL. */
+function safeResourceUrl(value){const raw=String(value||'').trim();if(!raw)return'';if(/[\u0000-\u001f\u007f]/.test(raw)||raw.startsWith('//')||raw.includes('\\'))return'';const protocol=raw.match(/^([a-z][a-z\d+.-]*):/i);return !protocol||/^(https?):$/i.test(protocol[1]+':')?raw:''}
+function safeHttpUrl(value){const raw=safeResourceUrl(value);return /^https?:\/\//i.test(raw)?raw:''}
 function normalize(x){return String(x||'').trim().toUpperCase()}
 function taskIdentity(item){return String(item.id||('task-'+Number(item.date)))}
 
@@ -44,4 +47,6 @@ Object.defineProperties(Deutschraum.state, {
 });
 Deutschraum.utils.escape = esc;
 Deutschraum.utils.normalize = normalize;
+Deutschraum.utils.safeResourceUrl = safeResourceUrl;
+Deutschraum.utils.safeHttpUrl = safeHttpUrl;
 Object.assign(Deutschraum.app, { save, go, shell, view, open, close, say, taskIdentity });

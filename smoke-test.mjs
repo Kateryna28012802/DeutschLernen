@@ -105,6 +105,17 @@ if (!storageSource.includes("K='deutschraum-live-v1'") || !storageSource.include
   throw new Error('Backward-compatible localStorage keys changed');
 }
 
+const securitySources = jsRefs.map(ref => fs.readFileSync(path.join(root, ref), 'utf8')).join('\n');
+const obviousSecretPatterns = [
+  /(?:sk_live|sk_test)_[A-Za-z0-9]{16,}/,
+  /github_pat_[A-Za-z0-9_]{20,}/,
+  /gh[pousr]_[A-Za-z0-9]{20,}/,
+  /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/
+];
+if (obviousSecretPatterns.some(pattern => pattern.test(securitySources))) {
+  throw new Error('An obvious private credential pattern is present in a shipped script');
+}
+
 const logicSources = featureRefs.map(ref => fs.readFileSync(path.join(root, ref), 'utf8')).join('\n');
 if (/const\s+(?:standardTopics|defaultSpecialTopics|everydaySituations|vocabularyForms)\s*=\s*[\[{]/.test(logicSources)) {
   throw new Error('Declarative curriculum or vocabulary data leaked back into logic modules');
@@ -152,6 +163,25 @@ runtimeContext.globalThis = runtimeContext;
 for (const ref of jsRefs) {
   new vm.Script(fs.readFileSync(path.join(root, ref), 'utf8'), { filename: ref }).runInContext(runtimeContext);
 }
+const { safeResourceUrl, safeHttpUrl } = runtimeContext.Deutschraum.utils;
+if (typeof safeResourceUrl !== 'function' || typeof safeHttpUrl !== 'function') {
+  throw new Error('Required URL trust-boundary helpers are missing');
+}
+for (const dangerous of ['javascript:alert(1)', 'data:text/html,<script>alert(1)</script>', 'vbscript:msgbox(1)', '//evil.example/media.mp3', '\\evil.example\\media.mp3']) {
+  if (safeResourceUrl(dangerous) || safeHttpUrl(dangerous)) throw new Error(`Dangerous URL protocol accepted: ${dangerous}`);
+}
+for (const safe of ['https://media.example/audio.mp3', 'http://localhost/video.mp4', 'media/audio.mp3']) {
+  if (!safeResourceUrl(safe)) throw new Error(`Safe resource URL rejected: ${safe}`);
+}
+if (!safeHttpUrl('https://api.example.test/ai') || safeHttpUrl('/relative/api')) {
+  throw new Error('Absolute API endpoint validation failed');
+}
+const unsafeMedia = runtimeContext.Deutschraum.exercises.mediaHtml({
+  image_url: 'javascript:alert(1)', audio_url: 'data:text/html,unsafe', video_url: 'vbscript:unsafe'
+});
+if (/javascript:|data:text\/html|vbscript:/i.test(unsafeMedia)) throw new Error('Unsafe media URL reached rendered HTML');
+const spoofedEmbed = runtimeContext.Deutschraum.exercises.mediaHtml({ video_url: 'https://evil.example/youtube.com/watch?v=dQw4w9WgXcQ' });
+if (spoofedEmbed.includes('<iframe')) throw new Error('Untrusted host was accepted as an iframe provider');
 const persistedState = runtimeContext.Deutschraum.state.db;
 if (!persistedState.settings.qaPersistenceMarker || !persistedState.users['qa@example.test'].done.includes('A1-existing') ||
     !persistedState.content.some(item => item.id === 'existing-task') || !persistedState.users['qa@example.test'].words.length) {
