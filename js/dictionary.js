@@ -43,10 +43,6 @@ function cards(){let w=prof()?.words[0]||'Noch keine Wörter';open('<div class="
     }
     migrateStoredContent();
     /* Vereinfachter persoenlicher Wortschatz: bewusst manuell, ohne KI, Wortarterkennung oder Kategorien. */
-    function simpleVocabularyRecord(value,index=0){
-      if(value&&typeof value==='object')return{id:value.id||('vocab-'+index),german:String(value.german||value.word||value.base||''),translation:String(value.translation||'')};
-      return{id:'vocab-'+index,german:String(value||''),translation:''};
-    }
     window.pronounceVocabularyInput=function(){const value=document.getElementById('simpleGermanWord')?.value.trim();if(value)say(value)};
     window.saveSimpleVocabulary=function(){
       const profile=window.prof?.();if(!profile)return login('login');

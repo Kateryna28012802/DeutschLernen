@@ -10,6 +10,7 @@ const missing = refs.filter(ref => !/^(?:https?:|data:|#)/.test(ref) && !fs.exis
 if (missing.length) throw new Error(`Missing local assets: ${missing.join(', ')}`);
 
 const jsRefs = refs.filter(ref => ref.endsWith('.js'));
+if (new Set(jsRefs).size !== jsRefs.length) throw new Error('A script is loaded more than once');
 for (const ref of jsRefs) {
   const source = fs.readFileSync(path.join(root, ref), 'utf8');
   new vm.Script(source, { filename: ref });
@@ -17,19 +18,19 @@ for (const ref of jsRefs) {
 
 const dataRefs = jsRefs.filter(ref => ref.startsWith('data/'));
 const coreIndex = jsRefs.indexOf('js/app.js');
-const legacyIndex = jsRefs.indexOf('js/legacy-features.js');
+const compatibilityIndex = jsRefs.indexOf('js/compatibility.js');
 const bootstrapIndex = jsRefs.indexOf('js/bootstrap.js');
-const featureRefs = ['js/exercises.js', 'js/progress.js', 'js/lessons.js', 'js/career.js', 'js/dictionary.js', 'js/admin.js', 'js/auth.js'];
-if (!dataRefs.length || coreIndex < 0 || legacyIndex < 0 || bootstrapIndex < 0) {
+const featureRefs = ['js/exercises.js', 'js/progress.js', 'js/lessons.js', 'js/career.js', 'js/dictionary.js', 'js/admin.js', 'js/auth.js', 'js/payments.js'];
+if (!dataRefs.length || coreIndex < 0 || compatibilityIndex < 0 || bootstrapIndex < 0) {
   throw new Error('Required data/core/compatibility/bootstrap scripts are missing');
 }
 if (dataRefs.some(ref => jsRefs.indexOf(ref) > coreIndex)) {
   throw new Error('Content data must load before the shared runtime');
 }
-if (featureRefs.some(ref => !jsRefs.includes(ref) || jsRefs.indexOf(ref) < coreIndex || jsRefs.indexOf(ref) > legacyIndex)) {
+if (featureRefs.some(ref => !jsRefs.includes(ref) || jsRefs.indexOf(ref) < coreIndex || jsRefs.indexOf(ref) > compatibilityIndex)) {
   throw new Error('Feature modules must load between app.js and the compatibility layer');
 }
-if (bootstrapIndex !== jsRefs.length - 1 || bootstrapIndex < legacyIndex) {
+if (bootstrapIndex !== jsRefs.length - 1 || bootstrapIndex < compatibilityIndex) {
   throw new Error('bootstrap.js must initialize the application exactly once and load last');
 }
 const dataContext = vm.createContext({ window: {} });
@@ -50,16 +51,22 @@ for (const level of contentData.levelOrder) {
 if (!Array.isArray(contentData.career?.specialTopics) || !contentData.vocabulary?.forms) {
   throw new Error('Career or vocabulary data is missing');
 }
-const legacySource = fs.readFileSync(path.join(root, 'js/legacy-features.js'), 'utf8');
-if (/ensureContentIds\(\);\s*view\(\);\s*\}\)\(\);\s*$/.test(legacySource)) {
-  throw new Error('legacy-features.js must not duplicate bootstrap initialization');
+if (jsRefs.includes('js/legacy-features.js') || fs.existsSync(path.join(root, 'js/legacy-features.js'))) {
+  throw new Error('The retired legacy-features.js must not exist or be loaded');
+}
+const compatibilitySource = fs.readFileSync(path.join(root, 'js/compatibility.js'), 'utf8');
+if (Buffer.byteLength(compatibilitySource) > 40000) {
+  throw new Error('compatibility.js grew beyond the documented adapter boundary');
+}
+if (/ensureContentIds\(\);\s*view\(\);\s*\}\)\(\);\s*$/.test(compatibilitySource)) {
+  throw new Error('compatibility.js must not duplicate bootstrap initialization');
 }
 const appSource = fs.readFileSync(path.join(root, 'js/app.js'), 'utf8');
-for (const namespace of ['state', 'utils', 'app', 'lessons', 'exercises', 'dictionary', 'progress', 'admin', 'auth']) {
+for (const namespace of ['state', 'utils', 'app', 'lessons', 'exercises', 'dictionary', 'progress', 'admin', 'auth', 'payments']) {
   if (!appSource.includes(`Deutschraum.${namespace}`)) throw new Error(`Missing shared runtime namespace: ${namespace}`);
 }
 for (const removedBlock of ['function renderTask(', 'function focusTraining(', 'function enrichVocabularyWord(', 'window.openEverydaySituation=function']) {
-  if (legacySource.includes(removedBlock)) throw new Error(`Extracted implementation remains duplicated in legacy-features.js: ${removedBlock}`);
+  if (compatibilitySource.includes(removedBlock)) throw new Error(`Extracted implementation remains duplicated in compatibility.js: ${removedBlock}`);
 }
 if (!fs.readFileSync(path.join(root, 'js/exercises.js'), 'utf8').includes('runtime.exercises') ||
     !fs.readFileSync(path.join(root, 'js/lessons.js'), 'utf8').includes('runtime.lessons') ||
@@ -82,5 +89,25 @@ const globals = new Set([
 for (const match of combined.matchAll(/\bwindow\.([A-Za-z_$][\w$]*)\s*=/g)) globals.add(match[1]);
 const unresolved = [...called].filter(name => !ignored.has(name) && !globals.has(name));
 if (unresolved.length) throw new Error(`Unresolved inline handlers: ${unresolved.sort().join(', ')}`);
+
+const requiredCompatibilityGlobals = [
+  'go', 'view', 'open', 'close', 'login', 'logout', 'profile', 'admin',
+  'levels', 'openTopic', 'openSkillModule', 'openPublishedTask',
+  'dict', 'cards', 'openWordMenu', 'saveSimpleVocabulary',
+  'premium', 'demoPay', 'toggleMobileMenu', 'renderStructuredAdminTab',
+  'publishStructuredTask', 'updateStructuredPreview', 'markTaskDone'
+];
+const missingGlobals = requiredCompatibilityGlobals.filter(name => !globals.has(name));
+if (missingGlobals.length) throw new Error(`Missing required compatibility globals: ${missingGlobals.join(', ')}`);
+
+const storageSource = fs.readFileSync(path.join(root, 'js/app.js'), 'utf8');
+if (!storageSource.includes("K='deutschraum-live-v1'") || !storageSource.includes("K+'-session'")) {
+  throw new Error('Backward-compatible localStorage keys changed');
+}
+
+const logicSources = featureRefs.map(ref => fs.readFileSync(path.join(root, ref), 'utf8')).join('\n');
+if (/const\s+(?:standardTopics|defaultSpecialTopics|everydaySituations|vocabularyForms)\s*=\s*[\[{]/.test(logicSources)) {
+  throw new Error('Declarative curriculum or vocabulary data leaked back into logic modules');
+}
 
 console.log(`Smoke check passed: ${refs.length} assets, ${jsRefs.length} scripts, ${dataRefs.length} data files, ${handlers.length} inline handlers.`);
