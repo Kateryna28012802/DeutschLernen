@@ -98,7 +98,7 @@ function lesson(topic){if(db.settings.money&&(s.level==='B1'||s.level==='B2'))re
       return example + '<div class="option-cards">' + ['Ich heiße Lena.','Ich heißen Lena.','Ich heißt Lena.'].map((option, index) => '<button class="option-card" onclick="choiceCheck(this,' + (index === 0) + ')">' + option + '</button>').join('') + '</div>';
     }
     if (type === 'Satzbau') {
-      const tiles = content.split('|').map(word => word.trim()).filter(Boolean);
+      const tiles = String(content || '').split('|').map(word => word.trim()).filter(Boolean);
       return example + '<div class="drag-zone"><div class="sentence-result" id="sentenceDrop">Baue hier deinen Satz …</div></div><div class="word-bank">' + tiles.map(word => '<button draggable="true" class="word-chip draggable" ontouchstart="this.classList.add(\'dragging\')" onclick="appendTile(this)">' + esc(word) + '</button>').join('') + '</div>';
     }
     if (type === 'Zuordnung') {
@@ -221,6 +221,7 @@ function lesson(topic){if(db.settings.money&&(s.level==='B1'||s.level==='B2'))re
 
 
   Object.assign(runtime.exercises, {
-    renderTask, renderWritingTask, mediaHtml, wordify, renderChatSimulator, renderTrueFalseTask
+    exampleBox, renderTask, renderWritingTask, renderSpeakingTask, mediaHtml,
+    wordify, renderChatSimulator, renderTrueFalseTask
   });
 })(window.Deutschraum, window.DeutschraumData);

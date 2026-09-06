@@ -10,7 +10,14 @@ Deutschraum.progress = Deutschraum.progress || {};
 Deutschraum.admin = Deutschraum.admin || {};
 Deutschraum.auth = Deutschraum.auth || {};
 Deutschraum.payments = Deutschraum.payments || {};
-const ADMIN='e.sokolenko280128@gmail.com',K='deutschraum-live-v1',D={users:{},content:[],analytics:{premium:0,views:{}},settings:{money:false,stripePublic:'',legal:{name:'[Name]',address:'[Adresse]',email:'[E-Mail]',tax:'[Steuernummer]'}}};let db=Object.assign(D,JSON.parse(localStorage.getItem(K)||'{}'));db.settings=Object.assign(D.settings,db.settings||{});db.settings.legal=Object.assign(D.settings.legal,db.settings.legal||{});db.analytics=Object.assign(D.analytics,db.analytics||{});let user=JSON.parse(localStorage.getItem(K+'-session')||'null'),s={page:'levels',level:'A1',tab:'topics'};const nav=[['levels','📚','Niveaus'],['dict','📖','Wortschatz'],['career','💼','Beruf']];
+const ADMIN='e.sokolenko280128@gmail.com',K='deutschraum-live-v1',D={users:{},content:[],analytics:{premium:0,views:{}},settings:{money:false,stripePublic:'',legal:{name:'[Name]',address:'[Adresse]',email:'[E-Mail]',tax:'[Steuernummer]'}}};
+function readStored(key,fallback){try{return JSON.parse(localStorage.getItem(key)||JSON.stringify(fallback))}catch{return fallback}}
+const storedDb=readStored(K,{});
+let db=Object.assign({},D,storedDb);
+db.settings=Object.assign({},D.settings,storedDb.settings||{});
+db.settings.legal=Object.assign({},D.settings.legal,storedDb.settings?.legal||{});
+db.analytics=Object.assign({},D.analytics,storedDb.analytics||{});
+let user=readStored(K+'-session',null),s={page:'levels',level:'A1',tab:'topics'};const nav=[['levels','📚','Niveaus'],['dict','📖','Wortschatz'],['career','💼','Beruf']];
 function save(){localStorage.setItem(K,JSON.stringify(db));localStorage.setItem(K+'-session',JSON.stringify(user))}
 function adminOK(){return user&&user.email.toLowerCase()===ADMIN}
 function prof(){if(!user)return null;return db.users[user.email]||(db.users[user.email]={done:[],right:0,answers:0,words:[],last:{page:'levels',level:'A1'}})}

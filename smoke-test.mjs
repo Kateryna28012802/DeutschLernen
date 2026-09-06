@@ -110,4 +110,76 @@ if (/const\s+(?:standardTopics|defaultSpecialTopics|everydaySituations|vocabular
   throw new Error('Declarative curriculum or vocabulary data leaked back into logic modules');
 }
 
+function fakeElement() {
+  const element = {
+    style: {}, dataset: {}, value: '', textContent: '', innerHTML: '', children: [], options: [],
+    childNodes: [{ textContent: '' }], firstChild: { textContent: '' },
+    classList: { add() {}, remove() {}, contains() { return false; }, toggle() { return false; } },
+    querySelector: () => fakeElement(), querySelectorAll: () => [], closest() { return this; },
+    addEventListener() {}, removeEventListener() {}, setAttribute() {}, getAttribute() { return ''; },
+    insertAdjacentHTML() {}, insertAdjacentElement() {}, append() {}, prepend() {}, remove() {},
+    replaceWith() {}, scrollIntoView() {}, focus() {}
+  };
+  element.parentElement = element;
+  element.content = element;
+  return element;
+}
+
+const runtimeStorage = new Map();
+runtimeStorage.set('deutschraum-live-v1', JSON.stringify({
+  users: { 'qa@example.test': { done: ['A1-existing'], right: 2, answers: 3, words: ['gehen'], last: { page: 'levels', level: 'A1' } } },
+  content: [{ id: 'existing-task', date: 1, level: 'A1', section: 'A1', topic: 'Existing', type: 'Freitext', content: 'Alt' }],
+  settings: { qaPersistenceMarker: true }
+}));
+runtimeStorage.set('deutschraum-live-v1-session', JSON.stringify({ email: 'qa@example.test' }));
+const runtimeContext = vm.createContext({
+  console, TextDecoder, TextEncoder, Uint8Array, Blob, URL, Map, Set, Date, Math, JSON,
+  Promise, Array, Object, String, Number, RegExp, Error, encodeURIComponent, decodeURIComponent,
+  setTimeout: () => 0, clearTimeout() {}, alert() {}, confirm: () => false, prompt: () => '',
+  fetch: async () => ({ ok: false, json: async () => ({}) }),
+  localStorage: { getItem: key => runtimeStorage.get(key) || null, setItem: (key, value) => runtimeStorage.set(key, value) },
+  speechSynthesis: { cancel() {}, speak() {} }, SpeechSynthesisUtterance: function () {},
+  navigator: {}, NodeFilter: { SHOW_TEXT: 4 }, Event: function () {}, FileReader: function () {}, MediaRecorder: function () {}
+});
+runtimeContext.document = {
+  body: fakeElement(), activeElement: null, getElementById: () => fakeElement(),
+  querySelector: () => fakeElement(), querySelectorAll: () => [], createElement: () => fakeElement(),
+  createDocumentFragment: () => fakeElement(), createTextNode: value => ({ textContent: value }),
+  createTreeWalker: () => ({ nextNode: () => false }), addEventListener() {}
+};
+runtimeContext.window = runtimeContext;
+runtimeContext.globalThis = runtimeContext;
+for (const ref of jsRefs) {
+  new vm.Script(fs.readFileSync(path.join(root, ref), 'utf8'), { filename: ref }).runInContext(runtimeContext);
+}
+const persistedState = runtimeContext.Deutschraum.state.db;
+if (!persistedState.settings.qaPersistenceMarker || !persistedState.users['qa@example.test'].done.includes('A1-existing') ||
+    !persistedState.content.some(item => item.id === 'existing-task') || !persistedState.users['qa@example.test'].words.length) {
+  throw new Error('Existing localStorage data was not preserved during runtime initialization/migration');
+}
+if ([...runtimeStorage.keys()].some(key => !['deutschraum-live-v1', 'deutschraum-live-v1-session'].includes(key))) {
+  throw new Error('Unexpected localStorage key created');
+}
+
+const exerciseTypes = ['Multiple Choice', 'Lückentext', 'Zuordnung', 'Kategorisierung', 'Richtig / Falsch',
+  'Fehlerkorrektur', 'Satzbau', 'Kontext-Übung', 'Lesen', 'Hörverstehen', 'Interaktiver Dialog',
+  'Chat-Simulator', 'Odd One Out', 'Grammatik-Regel', 'Freitext', 'Schreiben', 'Sprechen'];
+for (const type of exerciseTypes) {
+  const rendered = runtimeContext.Deutschraum.exercises.renderTask(type, 'Test | Inhalt', '');
+  if (typeof rendered !== 'string' || !rendered) throw new Error(`Exercise renderer failed for ${type}`);
+  const emptyRendered = runtimeContext.Deutschraum.exercises.renderTask(type, null, null);
+  if (typeof emptyRendered !== 'string' || !emptyRendered) throw new Error(`Exercise renderer failed on empty data for ${type}`);
+}
+if (!runtimeContext.Deutschraum.exercises.renderTask('Unbekannter Typ', null, null)) throw new Error('Unknown exercise fallback failed');
+for (const page of ['levels', 'dict', 'career', 'focus']) {
+  runtimeContext.Deutschraum.state.route.page = page;
+  runtimeContext.view();
+}
+for (const skill of ['Lesen', 'Hören', 'Schreiben', 'Sprechen']) runtimeContext.openSkillModule('A1', skill);
+runtimeContext.login('login');
+runtimeContext.login('register');
+runtimeContext.premium();
+runtimeContext.openEverydaySituation('supermarkt');
+runtimeContext.legal('imp');
+
 console.log(`Smoke check passed: ${refs.length} assets, ${jsRefs.length} scripts, ${dataRefs.length} data files, ${handlers.length} inline handlers.`);

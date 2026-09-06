@@ -53,7 +53,7 @@
 
   runtime.auth.installProfileUi({languageOptions,db,save,getUser:()=>user,setUser:value=>{user=value},getRoute:()=>s,setRoute:value=>{s=value}});
 
-  runtime.lessons.installLegacyLevels({standardTopics,normalize,esc,renderWritingTask,renderSpeakingTask:exerciseEngine.renderSpeakingTask});
+  runtime.lessons.installLegacyLevels({standardTopics,normalize,esc,exampleBox:exerciseEngine.exampleBox,renderWritingTask,renderSpeakingTask:exerciseEngine.renderSpeakingTask});
 
   window.dict=function(){const profile=window.prof?.()||{words:[],nativeLanguage:'Russisch'};profile.nativeLanguage=profile.nativeLanguage||'Russisch';db.teacherVocab=Array.isArray(db.teacherVocab)?db.teacherVocab:[];const personal=(profile.words||[]).map(wordValue=>{const info=analyzeGrammarWord(wordValue);return '<article class="card dictionary-card"><p class="eyebrow">DEUTSCH → '+esc(profile.nativeLanguage).toUpperCase()+'</p><h3>'+esc(info.base)+'</h3><p class="word-type">'+esc(info.kind)+'</p><p class="muted">'+esc(info.forms)+'</p><p class="translation">'+esc(dynamicTranslation(info.base))+'</p><button class="speaker" onclick="say(\''+esc(info.base).replace(/&#39;/g,"\\'")+'\')">🔊 Aussprache</button></article>'}).join('');const official=db.teacherVocab.map((entry,index)=>'<article class="card dictionary-card"><p class="eyebrow">LEHRER-WORTSCHATZ · '+esc(entry.level)+'</p><h3>'+esc(entry.word)+'</h3><label class="student-translation">Deine Übersetzung<input placeholder="Selbst eintragen" value="'+esc(profile.teacherTranslations?.[entry.id]||'')+'" onchange="saveTeacherTranslation(\''+entry.id+'\',this.value)"></label><button class="speaker" onclick="say(\''+esc(entry.word).replace(/&#39;/g,"\\'")+'\')">🔊</button>'+(adminOK()?'<button class="danger-button" onclick="deleteTeacherWord('+index+')">Löschen</button>':'')+'</article>').join('');return '<div class="head"><div><p class="eyebrow">WORTSCHATZ</p><h2>Wörter verstehen und behalten</h2></div><button class="secondary" onclick="cards()">🃏 Karteikarten</button></div><div class="dictionary-search"><input id="dictionarySearch" placeholder="Deutsches Wort eingeben" onkeydown="if(event.key===\'Enter\')translateWordDynamic()"><button class="primary" onclick="translateWordDynamic()">Analysieren</button></div><p id="translationResult" class="notice hidden-result" aria-live="polite"></p><div class="levels"><button class="'+(s.tab==='topics'?'active':'')+'" onclick="s.tab=\'topics\';view()">Offizieller Lehrer-Wortschatz</button><button class="'+(s.tab==='mine'?'active':'')+'" onclick="s.tab=\'mine\';view()">Mein Wörterbuch ('+(profile.words||[]).length+')</button></div><div class="grid cards">'+(s.tab==='mine'?(personal||'<article class="card wide"><h3>Dein Wörterbuch wartet auf dich.</h3></article>'):(official||'<article class="card wide"><h3>Noch kein Lehrer-Wortschatz</h3><p class="muted">Der Lehrer kann im Dashboard deutsche Wörter hinzufügen.</p></article>'))+'</div>';};
   window.translateWordDynamic=function(){const input=document.getElementById('dictionarySearch'),box=document.getElementById('translationResult');if(!input||!box)return;const info=analyzeGrammarWord(input.value);box.innerHTML='<strong>'+esc(info.clicked)+'</strong>'+(info.clicked.toLowerCase()!==info.base.toLowerCase()?' → Grundform <strong>'+esc(info.base)+'</strong>':'')+'<br>'+esc(info.forms)+'<br>Deutsch → '+esc(nativeLanguage())+': <strong>'+esc(dynamicTranslation(info.base))+'</strong> <button class="secondary" onclick="saveAnalyzedWord(\''+esc(info.base).replace(/&#39;/g,"\\'")+'\')">Speichern</button>';};
@@ -117,6 +117,7 @@
   const adminIntegration=runtime.admin.installIntegrations({db,s,save,esc,normalize,taskIdentity,adminOK,categoryOptions,selectedCategory,ensureVocabularyState,wordRecord,analyzeGrammarWord,getUser:()=>user,setUser:value=>{user=value},renderTask});
   let renderStructuredManager=adminIntegration.renderStructuredManager;
   const isAdminAccount=adminIntegration.isAdminAccount;
+  runtime.auth.installAccountCompatibility({languageOptions,db,save});
   const richResult=runtime.admin.installRichEditor({db,s,save,esc,taskIdentity,mediaHtml,renderTask,isAdminAccount,adminOK,normalize,wordify,renderStructuredManager});
   wordify=richResult.wordify;
   renderStructuredManager=richResult.renderStructuredManager;
@@ -124,5 +125,5 @@
   window.Deutschraum.progress.installFocusTraining({db,esc,save,adminOK,nav,s,getUser:()=>user,prof:window.prof,shell,view:window.view,renderUnifiedModeControl});
   window.Deutschraum.lessons.installEverydayCareer({esc,wordify,renderChatSimulator,renderTrueFalseTask});
   window.Deutschraum.dictionary.installFinalDictionary({db,s,save,view:window.view,close:window.close,esc,adminOK});
-  ensureContentIds();
+  adminIntegration.ensureContentIds();
 })();
