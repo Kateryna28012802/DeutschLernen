@@ -10,6 +10,7 @@ Deutschraum.progress = Deutschraum.progress || {};
 Deutschraum.admin = Deutschraum.admin || {};
 Deutschraum.auth = Deutschraum.auth || {};
 Deutschraum.payments = Deutschraum.payments || {};
+Deutschraum.backend = Deutschraum.backend || {};
 const ADMIN='e.sokolenko280128@gmail.com',K='deutschraum-live-v1',D={users:{},content:[],analytics:{premium:0,views:{}},settings:{money:false,stripePublic:'',legal:{name:'[Name]',address:'[Adresse]',email:'[E-Mail]',tax:'[Steuernummer]'}}};
 function readStored(key,fallback){try{return JSON.parse(localStorage.getItem(key)||JSON.stringify(fallback))}catch{return fallback}}
 const storedDb=readStored(K,{});
@@ -17,9 +18,11 @@ let db=Object.assign({},D,storedDb);
 db.settings=Object.assign({},D.settings,storedDb.settings||{});
 db.settings.legal=Object.assign({},D.settings.legal,storedDb.settings?.legal||{});
 db.analytics=Object.assign({},D.analytics,storedDb.analytics||{});
-let user=readStored(K+'-session',null),s={page:'levels',level:'A1',tab:'topics'};const nav=[['levels','📚','Niveaus'],['dict','📖','Wortschatz'],['career','💼','Beruf']];
-function save(){localStorage.setItem(K,JSON.stringify(db));localStorage.setItem(K+'-session',JSON.stringify(user))}
-function adminOK(){return user&&user.email.toLowerCase()===ADMIN}
+const configuredUrl=String(window.DEUTSCHRAUM_CONFIG?.supabaseUrl||'').trim(),configuredKey=String(window.DEUTSCHRAUM_CONFIG?.supabasePublishableKey||'').trim();
+const backendConfigured=/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/i.test(configuredUrl)&&/^(?:sb_publishable_|eyJ)[A-Za-z0-9._-]+$/.test(configuredKey);
+let user=backendConfigured?null:readStored(K+'-session',null),s={page:'levels',level:'A1',tab:'topics'};const nav=[['levels','📚','Niveaus'],['dict','📖','Wortschatz'],['career','💼','Beruf']];
+function save(){localStorage.setItem(K,JSON.stringify(db));if(!backendConfigured)localStorage.setItem(K+'-session',JSON.stringify(user))}
+function adminOK(){return !backendConfigured&&user&&user.email.toLowerCase()===ADMIN}
 function prof(){if(!user)return null;return db.users[user.email]||(db.users[user.email]={done:[],right:0,answers:0,words:[],last:{page:'levels',level:'A1'}})}
 function go(p){s.page=p;view()}
 function n(i){return '<button class="'+(s.page===i[0]?'active':'')+'" onclick="go(\''+i[0]+'\')">'+i[1]+' '+i[2]+'</button>'}

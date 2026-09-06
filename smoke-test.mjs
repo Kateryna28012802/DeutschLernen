@@ -20,8 +20,10 @@ const dataRefs = jsRefs.filter(ref => ref.startsWith('data/'));
 const coreIndex = jsRefs.indexOf('js/app.js');
 const compatibilityIndex = jsRefs.indexOf('js/compatibility.js');
 const bootstrapIndex = jsRefs.indexOf('js/bootstrap.js');
+const configIndex = jsRefs.indexOf('js/config.js');
+const backendIndex = jsRefs.indexOf('js/backend.js');
 const featureRefs = ['js/exercises.js', 'js/progress.js', 'js/lessons.js', 'js/career.js', 'js/dictionary.js', 'js/admin.js', 'js/auth.js', 'js/payments.js'];
-if (!dataRefs.length || coreIndex < 0 || compatibilityIndex < 0 || bootstrapIndex < 0) {
+if (!dataRefs.length || configIndex < 0 || coreIndex < 0 || backendIndex < 0 || compatibilityIndex < 0 || bootstrapIndex < 0) {
   throw new Error('Required data/core/compatibility/bootstrap scripts are missing');
 }
 if (dataRefs.some(ref => jsRefs.indexOf(ref) > coreIndex)) {
@@ -32,6 +34,9 @@ if (featureRefs.some(ref => !jsRefs.includes(ref) || jsRefs.indexOf(ref) < coreI
 }
 if (bootstrapIndex !== jsRefs.length - 1 || bootstrapIndex < compatibilityIndex) {
   throw new Error('bootstrap.js must initialize the application exactly once and load last');
+}
+if (!(configIndex < coreIndex && coreIndex < backendIndex && backendIndex < Math.min(...featureRefs.map(ref => jsRefs.indexOf(ref))))) {
+  throw new Error('Supabase config/app/backend must load in trust-boundary order before feature modules');
 }
 const dataContext = vm.createContext({ window: {} });
 dataContext.window.window = dataContext.window;
@@ -62,7 +67,7 @@ if (/ensureContentIds\(\);\s*view\(\);\s*\}\)\(\);\s*$/.test(compatibilitySource
   throw new Error('compatibility.js must not duplicate bootstrap initialization');
 }
 const appSource = fs.readFileSync(path.join(root, 'js/app.js'), 'utf8');
-for (const namespace of ['state', 'utils', 'app', 'lessons', 'exercises', 'dictionary', 'progress', 'admin', 'auth', 'payments']) {
+for (const namespace of ['state', 'utils', 'app', 'backend', 'lessons', 'exercises', 'dictionary', 'progress', 'admin', 'auth', 'payments']) {
   if (!appSource.includes(`Deutschraum.${namespace}`)) throw new Error(`Missing shared runtime namespace: ${namespace}`);
 }
 for (const removedBlock of ['function renderTask(', 'function focusTraining(', 'function enrichVocabularyWord(', 'window.openEverydaySituation=function']) {
@@ -108,12 +113,30 @@ if (!storageSource.includes("K='deutschraum-live-v1'") || !storageSource.include
 const securitySources = jsRefs.map(ref => fs.readFileSync(path.join(root, ref), 'utf8')).join('\n');
 const obviousSecretPatterns = [
   /(?:sk_live|sk_test)_[A-Za-z0-9]{16,}/,
+  /sb_secret_[A-Za-z0-9._-]{16,}/,
   /github_pat_[A-Za-z0-9_]{20,}/,
   /gh[pousr]_[A-Za-z0-9]{20,}/,
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/
 ];
 if (obviousSecretPatterns.some(pattern => pattern.test(securitySources))) {
   throw new Error('An obvious private credential pattern is present in a shipped script');
+}
+
+const migrationPath = path.join(root, 'supabase/migrations/001_initial_schema.sql');
+if (!fs.existsSync(migrationPath)) throw new Error('Initial Supabase migration is missing');
+const migration = fs.readFileSync(migrationPath, 'utf8');
+for (const table of ['profiles', 'progress', 'user_vocabulary', 'user_settings', 'entitlements', 'content_items']) {
+  if (!new RegExp(`alter table public\\.${table} enable row level security`, 'i').test(migration)) {
+    throw new Error(`RLS is not enabled for ${table}`);
+  }
+}
+if (!/grant update \(display_name\) on public\.profiles to authenticated/i.test(migration) ||
+    /grant update[^;]*entitlements[^;]*authenticated/i.test(migration) ||
+    /grant (?:insert|delete)[^;]*entitlements[^;]*authenticated/i.test(migration)) {
+  throw new Error('Profile-role or entitlement least-privilege grants regressed');
+}
+if (!/insert into public\.profiles \(id, role\) values \(new\.id, 'user'\)/i.test(migration)) {
+  throw new Error('New profiles are not forced to the user role');
 }
 
 const logicSources = featureRefs.map(ref => fs.readFileSync(path.join(root, ref), 'utf8')).join('\n');
@@ -162,6 +185,38 @@ runtimeContext.window = runtimeContext;
 runtimeContext.globalThis = runtimeContext;
 for (const ref of jsRefs) {
   new vm.Script(fs.readFileSync(path.join(root, ref), 'utf8'), { filename: ref }).runInContext(runtimeContext);
+}
+const backend = runtimeContext.Deutschraum.backend;
+if (backend.mode !== 'legacy' || backend.isConfigured() || backend.isActive()) {
+  throw new Error('Empty Supabase configuration must keep explicit legacy mode inactive');
+}
+for (const method of ['signUp','signIn','signOut','getSession','getUser','onAuthStateChange']) {
+  if (typeof backend.auth?.[method] !== 'function') throw new Error(`Missing backend auth adapter: ${method}`);
+}
+for (const method of ['getProgress','saveProgress','mergeProgress']) {
+  if (typeof backend.progress?.[method] !== 'function') throw new Error(`Missing backend progress adapter: ${method}`);
+}
+for (const method of ['getVocabulary','saveWord','updateWord','removeWord']) {
+  if (typeof backend.vocabulary?.[method] !== 'function') throw new Error(`Missing backend vocabulary adapter: ${method}`);
+}
+for (const method of ['getPublished','save','remove']) {
+  if (typeof backend.content?.[method] !== 'function') throw new Error(`Missing backend content adapter: ${method}`);
+}
+if (typeof backend.isAdmin !== 'function' || typeof backend.getEntitlement !== 'function') {
+  throw new Error('Missing trusted Admin or entitlement boundary');
+}
+const configuredBackendContext = vm.createContext({
+  console,
+  document: { querySelector: () => null },
+  DEUTSCHRAUM_CONFIG: { supabaseUrl:'https://testproject.supabase.co', supabasePublishableKey:['sb','publishable','unit-test-only'].join('_') },
+  Deutschraum: {},
+  supabase: { createClient: () => ({ auth:{}, from(){} }) }
+});
+configuredBackendContext.window = configuredBackendContext;
+new vm.Script(fs.readFileSync(path.join(root, 'js/backend.js'), 'utf8'), { filename:'js/backend.js' }).runInContext(configuredBackendContext);
+await configuredBackendContext.Deutschraum.backend.ready;
+if (configuredBackendContext.Deutschraum.backend.mode !== 'supabase' || !configuredBackendContext.Deutschraum.backend.isActive()) {
+  throw new Error('Configured Supabase client did not activate through the backend boundary');
 }
 const { safeResourceUrl, safeHttpUrl } = runtimeContext.Deutschraum.utils;
 if (typeof safeResourceUrl !== 'function' || typeof safeHttpUrl !== 'function') {
